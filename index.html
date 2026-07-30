@@ -106,6 +106,16 @@
   .score-big{font-size:42px; font-weight:800; text-align:center; margin:4px 0;}
   .sr .row{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--sep); font-size:14px;}
   pre{background:var(--field); border-radius:9px; padding:11px; font-size:11px; overflow:auto; margin-top:10px; max-height:180px; line-height:1.35;}
+
+  .gate{display:none; text-align:center; padding:64px 26px;}
+  .gate .ic{font-size:46px; margin-bottom:14px;}
+  .gate h2{font-size:20px; margin-bottom:8px;}
+  .gate p{font-size:14.5px; color:var(--hint); line-height:1.5;}
+  body.gating #formwrap{display:none;}
+  body.gating .mainbtn{display:none;}
+  body.gating #gate{display:block;}
+  .pvbanner{background:#fff4d6; color:#7a5b00; font-size:12.5px; text-align:center; padding:8px 14px;}
+  @media (prefers-color-scheme: dark){ .pvbanner{background:rgba(255,200,0,.14); color:#e8c24a;} }
 </style>
 </head>
 <body>
@@ -115,7 +125,13 @@
     <div class="ttl"><b>Кебабця</b><span>Анкета таємного покупця</span></div>
     <div class="dots">⋯</div>
   </div>
-  <div class="scroll"><form id="f"></form></div>
+  <div class="scroll">
+    <div id="gate" class="gate"></div>
+    <div id="formwrap">
+      <div id="pvbanner" class="pvbanner" style="display:none">Режим перегляду — дані не зберігаються</div>
+      <form id="f"></form>
+    </div>
+  </div>
 </div>
 <button class="mainbtn" id="submit" disabled>Оберіть локацію та дату</button>
 
@@ -271,8 +287,8 @@ function control(q){
 // ================= ЛОКАЦІЯ + МЕТА =================
 (function(){
   const g = group("Локація та візит");
-  const rLoc = el(`<div class="row"><div class="q">Заклад<span class="req">*</span></div></div>`);
-  const sel = el(`<select><option value="">— оберіть локацію —</option>${LOCATIONS.map(l=>`<option>${l}</option>`).join("")}<option value="__other">Інша (вписати адресу)</option></select>`);
+  const rLoc = el(`<div class="row" id="locRow"><div class="q">Заклад<span class="req">*</span></div></div>`);
+  const sel = el(`<select id="locSelect"><option value="">— оберіть локацію —</option>${LOCATIONS.map(l=>`<option>${l}</option>`).join("")}<option value="__other">Інша (вписати адресу)</option></select>`);
   const other = el(`<input type="text" placeholder="Вкажіть адресу закладу" style="margin-top:8px; display:none;">`);
   sel.onchange=()=>{ if(sel.value==="__other"){other.style.display="block"; data.location=other.value;} else {other.style.display="none"; data.location=sel.value;} updateProg(); };
   other.oninput=()=>{data.location=other.value; updateProg();};
@@ -336,15 +352,28 @@ function updateProg(){
   const scored=SECTIONS.flatMap(s=>s.q).filter(q=>q.w);
   const done=scored.filter(q=>data[q.k]).length;
   const ok = data.location && data.date;
+  const label = ok ? `Надіслати звіт · ${done}/${scored.length}`
+              : data.location ? "Вкажіть дату візиту" : "Оберіть локацію та дату";
   if(tg?.MainButton){
-    tg.MainButton.setText(ok?`Надіслати звіт · ${done}/${scored.length}`:"Оберіть локацію та дату");
+    tg.MainButton.setText(ok?"Надіслати звіт":label);
     ok?tg.MainButton.enable():tg.MainButton.disable();
   }
-  submitBtn.textContent = ok?`Надіслати звіт · заповнено ${done}/${scored.length}`:"Оберіть локацію та дату";
-  submitBtn.disabled=!ok;
+  submitBtn.textContent=label; submitBtn.disabled=!ok;
 }
-function doSubmit(){
+function buildRecord(){
   const s=computeScore();
+  return {
+    assignment_id: ASSIGNMENT?.id ?? null,
+    location_id: ASSIGNMENT?.location_id ?? null,
+    location_name: data.location,
+    period: ASSIGNMENT?.period ?? null,
+    answers: {...data},
+    score_pct: s.pct, score_earned: s.totE, score_max: s.totW,
+    section_scores: Object.fromEntries(Object.keys(s.W).map(k=>[k,{earned:s.E[k],max:s.W[k]}])),
+    photos: null,
+  };
+}
+function showResultModal(s){
   const col=s.pct>=80?"var(--yes)":s.pct>=60?"#ba7517":"var(--no)";
   const T={reception:"Прийом замовлення",payout:"Розрахунок і видача",quality:"Якість страв",staff:"Персонал",clean:"Чистота"};
   const rows=Object.keys(s.W).map(k=>`<div class="row"><span>${T[k]}</span><span>${s.E[k]}/${s.W[k]} · ${s.W[k]?Math.round(s.E[k]/s.W[k]*100):0}%</span></div>`).join("");
@@ -352,24 +381,78 @@ function doSubmit(){
     `<div class="score-big" style="color:${col}">${s.pct}%</div>
      <div style="text-align:center;color:var(--hint);font-size:13px;margin-bottom:12px">${s.totE} із ${s.totW} балів · модель 4Service (Н·Д не карає)</div>
      <div class="sr">${rows}</div>
-     <div class="hint" style="margin-top:12px">Повний запис звіту (піде в базу):</div>
+     <div class="hint" style="margin-top:12px">Повний запис звіту:</div>
      <pre>${JSON.stringify({location:data.location, ...data}, null, 1)}</pre>`;
   document.getElementById("result").showModal();
 }
+async function doSubmit(){
+  const s=computeScore();
+  if(!tg || !ASSIGNMENT){ showResultModal(s); return; }        // режим перегляду (браузер)
+  if(tg.MainButton){ tg.MainButton.showProgress(); tg.MainButton.disable(); }
+  try{
+    const res = await api("submit", buildRecord());
+    if(res.ok){ tg.HapticFeedback?.notificationOccurred?.("success");
+      gate("✅","Дякуємо, звіт прийнято","Ваш звіт збережено. Гарного дня!"); }
+    else if(res.error==="already_done"){ gate("✔️","Звіт уже здано","Це завдання вже закрите."); }
+    else { alertMsg("Не вдалося надіслати: "+(res.error||"невідома помилка")); }
+  }catch(e){ alertMsg("Помилка мережі. Спробуйте ще раз."); }
+  finally{ if(tg.MainButton){ tg.MainButton.hideProgress(); tg.MainButton.enable(); } }
+}
+function alertMsg(m){ try{ tg?.showAlert ? tg.showAlert(m) : alert(m); }catch(e){ alert(m); } }
 submitBtn.onclick=doSubmit;
 
-// ================= TELEGRAM =================
-// «Справжній Telegram» = є непорожній initData. Інакше (звичайний браузер) — режим превʼю.
+// ================= TELEGRAM + ДОСТУП =================
 const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData
   ? window.Telegram.WebApp : null;
 function haptic(){ try{ tg?.HapticFeedback?.selectionChanged(); }catch(e){} }
-if(tg){
+
+const API_URL = "https://iohjhsexdgxamuafccht.supabase.co/functions/v1/api";
+let SESSION=null, ASSIGNMENT=null;
+async function api(action, payload){
+  const r = await fetch(API_URL, {method:"POST", headers:{"content-type":"application/json"},
+    body: JSON.stringify({action, initData: tg?.initData ?? "", payload})});
+  return r.json();
+}
+function gate(ic,title,text){
+  document.getElementById("gate").innerHTML=`<div class="ic">${ic}</div><h2>${title}</h2><p>${text}</p>`;
+  document.body.classList.add("gating");
+  if(tg?.MainButton) tg.MainButton.hide();
+}
+function showForm(){ document.body.classList.remove("gating"); }
+function applyAssignment(a){
+  ASSIGNMENT=a;
+  const sel=document.getElementById("locSelect");
+  if(sel && a.location_name){
+    if(![...sel.options].some(o=>o.value===a.location_name||o.text===a.location_name))
+      sel.add(new Option(a.location_name, a.location_name));
+    sel.value=a.location_name; data.location=a.location_name; sel.disabled=true;
+  }
+  updateProg();
+}
+async function initApp(){
+  if(!tg){
+    // Локальний файл або ?preview — режим перегляду дизайну. Публічне посилання в браузері — заглушка.
+    const preview = location.protocol==="file:" || location.search.includes("preview");
+    if(preview){ document.getElementById("pvbanner").style.display="block"; showForm(); updateProg(); }
+    else { gate("📱","Відкрийте у Telegram","Ця анкета працює лише через бота Кебабці."); }
+    return;
+  }
   document.documentElement.classList.add("is-tg");
   tg.ready(); tg.expand();
   tg.MainButton.onClick(doSubmit);
-  tg.MainButton.show();
+  gate("⏳","Перевірка доступу…","Хвилинку.");
+  try{
+    const me = await api("me", null);
+    if(!me.authorized){ gate("🔒","Немає доступу","Ця анкета лише для запрошених таємних покупців."); return; }
+    SESSION=me;
+    const open=(me.assignments||[]).filter(a=>a.status!=="done");
+    if(open.length===0){ gate("📭","Немає активних завдань","Наразі для вас немає призначених перевірок."); return; }
+    applyAssignment(open[0]);
+    showForm();
+    tg.MainButton.setText("Надіслати звіт"); tg.MainButton.show();
+  }catch(e){ gate("⚠️","Помилка зʼєднання","Спробуйте, будь ласка, пізніше."); }
 }
-updateProg();
+initApp();
 </script>
 </body>
 </html>
