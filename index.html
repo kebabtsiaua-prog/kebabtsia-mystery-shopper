@@ -443,7 +443,7 @@ async function initApp(){
   gate("⏳","Перевірка доступу…","Хвилинку.");
   try{
     const me = await api("me", null);
-    if(!me.authorized){ gate("🔒","Немає доступу","Ця анкета лише для запрошених таємних покупців."); return; }
+    if(!me.authorized){ gate("🔒","Немає доступу","Ця анкета лише для запрошених таємних покупців."+(me.reason?` [${me.reason}${me.id?": "+me.id:""}]`:"")); return; }
     SESSION=me;
     const open=(me.assignments||[]).filter(a=>a.status!=="done");
     if(open.length===0){ gate("📭","Немає активних завдань","Наразі для вас немає призначених перевірок."); return; }
