@@ -116,6 +116,45 @@
   body.gating #gate{display:block;}
   .pvbanner{background:#fff4d6; color:#7a5b00; font-size:12.5px; text-align:center; padding:8px 14px;}
   @media (prefers-color-scheme: dark){ .pvbanner{background:rgba(255,200,0,.14); color:#e8c24a;} }
+
+  /* ---- АДМІН-КАБІНЕТ ---- */
+  #admin{display:none;}
+  body.admin #formwrap{display:none;}
+  body.admin .mainbtn{display:none;}
+  body.admin #admin{display:block;}
+  .adm-h{padding:16px; font-size:20px; font-weight:700;}
+  .adm-sub{font-size:13px; color:var(--hint); font-weight:400; margin-top:2px;}
+  .stat-row{display:flex; gap:8px; padding:0 16px 8px;}
+  .stat{flex:1; background:var(--card); border:1px solid var(--sep); border-radius:12px; padding:12px; text-align:center;}
+  .stat b{font-size:22px; font-weight:700; display:block;}
+  .stat span{font-size:11px; color:var(--hint);}
+  .rep-card{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--sep);
+    border-radius:12px; padding:12px 14px; margin:8px 16px; cursor:pointer;}
+  .rep-card:active{opacity:.7;}
+  .rep-main{flex:1; min-width:0;}
+  .rep-loc{font-size:15px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .rep-meta{font-size:12px; color:var(--hint); margin-top:2px;}
+  .score-badge{font-size:15px; font-weight:800; padding:5px 11px; border-radius:999px; white-space:nowrap;}
+  .chev{color:var(--hint); font-size:18px;}
+  .empty{text-align:center; padding:50px 24px; color:var(--hint);}
+
+  /* деталі звіту */
+  .d-top{padding:14px 16px; border-bottom:1px solid var(--sep); position:sticky; top:0; background:var(--bg); z-index:5;}
+  .d-back{color:var(--link); font-size:15px; cursor:pointer; display:inline-flex; gap:5px; align-items:center; margin-bottom:10px;}
+  .d-scorerow{display:flex; align-items:baseline; justify-content:space-between; gap:10px;}
+  .d-loc{font-size:17px; font-weight:700;}
+  .d-big{font-size:30px; font-weight:800;}
+  .d-sec{margin:14px 16px 0;}
+  .d-sec-h{display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.04em; color:var(--hint); margin-bottom:6px;}
+  .d-sec-pct{font-weight:800;}
+  .d-item{background:var(--card); border:1px solid var(--sep); border-radius:10px; padding:9px 12px; margin-bottom:6px;}
+  .d-q{font-size:12.5px; color:var(--hint); margin-bottom:3px;}
+  .d-a{font-size:14px; font-weight:600; display:flex; align-items:center; gap:7px;}
+  .d-dot{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
+  .d-detail{font-size:12.5px; color:var(--hint); font-style:italic; margin-top:5px; padding-left:10px; border-left:2px solid var(--sep);}
+  .d-txt{background:var(--card); border:1px solid var(--sep); border-radius:10px; padding:10px 12px; margin-bottom:6px; font-size:13.5px;}
+  .d-txt .lbl{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--hint); margin-bottom:4px;}
 </style>
 </head>
 <body>
@@ -127,6 +166,7 @@
   </div>
   <div class="scroll">
     <div id="gate" class="gate"></div>
+    <div id="admin"></div>
     <div id="formwrap">
       <div id="pvbanner" class="pvbanner" style="display:none">Режим перегляду — дані не зберігаються</div>
       <form id="f"></form>
@@ -429,6 +469,78 @@ function applyAssignment(a){
   }
   updateProg();
 }
+// ================= АДМІН-КАБІНЕТ =================
+const scoreCol = (p) => p>=80?"var(--yes)":p>=60?"#e0a11a":"var(--no)";
+const scoreBg  = (p) => p>=80?"var(--yes-bg)":p>=60?"rgba(224,161,26,.16)":"var(--no-bg)";
+const A = document.getElementById("admin");
+let ADMIN_REPORTS = [];
+
+async function adminApp(){
+  document.body.classList.remove("gating");
+  document.body.classList.add("admin");
+  if(tg?.MainButton) tg.MainButton.hide();
+  A.innerHTML = `<div class="empty">Завантаження звітів…</div>`;
+  try{
+    const res = await api("admin_reports", null);
+    ADMIN_REPORTS = res.reports || [];
+    renderList();
+  }catch(e){ A.innerHTML = `<div class="empty">Помилка завантаження звітів.</div>`; }
+}
+
+function renderList(){
+  const reps = ADMIN_REPORTS;
+  const avg = reps.length ? Math.round(reps.reduce((s,r)=>s+(+r.score_pct||0),0)/reps.length) : 0;
+  let h = `<div class="adm-h">Кабінет адміністратора<div class="adm-sub">Звіти таємних покупців</div></div>`;
+  h += `<div class="stat-row">
+    <div class="stat"><b>${reps.length}</b><span>звітів</span></div>
+    <div class="stat"><b style="color:${scoreCol(avg)}">${avg}%</b><span>середній бал</span></div></div>`;
+  if(!reps.length){ h += `<div class="empty">Ще немає жодного звіту.</div>`; A.innerHTML=h; return; }
+  reps.forEach((r,i)=>{
+    const p = Math.round(+r.score_pct||0);
+    const date = r.answers?.date || (r.created_at ? new Date(r.created_at).toLocaleDateString("uk-UA") : "—");
+    h += `<div class="rep-card" data-i="${i}">
+      <div class="rep-main"><div class="rep-loc">${r.location_name||"—"}</div>
+        <div class="rep-meta">${date}${r.period?" · "+r.period:""}</div></div>
+      <div class="score-badge" style="background:${scoreBg(p)};color:${scoreCol(p)}">${p}%</div>
+      <div class="chev">›</div></div>`;
+  });
+  A.innerHTML = h;
+  A.querySelectorAll(".rep-card").forEach(c=>c.onclick=()=>openDetail(ADMIN_REPORTS[+c.dataset.i]));
+  document.querySelector(".scroll").scrollTop = 0;
+}
+
+const AV = { yes:["Так","var(--yes)"], no:["Ні","var(--no)"], na:["Н/Д","var(--na)"] };
+const binDisp = (v) => { const x=AV[v]; return x?`<span class="d-dot" style="background:${x[1]}"></span>${x[0]}`:`<span style="color:var(--hint)">—</span>`; };
+
+function openDetail(r){
+  const ans = r.answers||{}, ss = r.section_scores||{}, p = Math.round(+r.score_pct||0);
+  let h = `<div class="d-top"><div class="d-back" id="dback">‹ Усі звіти</div>
+    <div class="d-scorerow"><div class="d-loc">${r.location_name||"—"}</div><div class="d-big" style="color:${scoreCol(p)}">${p}%</div></div>
+    <div class="rep-meta">${ans.date||""}${r.period?" · "+r.period:""} · ${r.score_earned}/${r.score_max} балів</div></div>`;
+  const line=(lbl,val)=> val?`<div class="d-txt"><div class="lbl">${lbl}</div>${val}</div>`:"";
+  h += `<div class="d-sec">`;
+  h += line("Час у закладі", (ans.entry_time||ans.exit_time)?((ans.entry_time||"—")+" – "+(ans.exit_time||"—")):"");
+  h += line("Співробітник", [ans.employee,ans.employee_desc].filter(Boolean).join(" · "));
+  h += line("Чек", [ans.receipt_num&&("№ "+ans.receipt_num), ans.amount&&(ans.amount+" грн")].filter(Boolean).join(" · "));
+  h += line("Замовлення", ans.order);
+  h += `</div>`;
+  SECTIONS.forEach(s=>{
+    const sc = ss[s.id];
+    const pct = sc && sc.max ? Math.round(sc.earned/sc.max*100) : null;
+    h += `<div class="d-sec"><div class="d-sec-h"><span>${s.title}</span>${pct!=null?`<span class="d-sec-pct" style="color:${scoreCol(pct)}">${sc.earned}/${sc.max} · ${pct}%</span>`:""}</div>`;
+    s.q.forEach(q=>{
+      const v = ans[q.k], det = q.d && ans[q.k+"_detail"] ? `<div class="d-detail">${ans[q.k+"_detail"]}</div>` : "";
+      if(!q.t || q.t==="bin") h += `<div class="d-item"><div class="d-q">${q.q}</div><div class="d-a">${binDisp(v)}</div>${det}</div>`;
+      else if(q.t==="scale") h += `<div class="d-item"><div class="d-q">${q.q}</div><div class="d-a">${v!=null?v+"/10":"—"}</div></div>`;
+      else if(v) h += `<div class="d-txt"><div class="lbl">${q.q}</div>${v}${det}</div>`;
+    });
+    h += `</div>`;
+  });
+  A.innerHTML = h;
+  document.getElementById("dback").onclick = renderList;
+  document.querySelector(".scroll").scrollTop = 0;
+}
+
 async function initApp(){
   if(!tg){
     // Локальний файл або ?preview — режим перегляду дизайну. Публічне посилання в браузері — заглушка.
@@ -443,7 +555,8 @@ async function initApp(){
   gate("⏳","Перевірка доступу…","Хвилинку.");
   try{
     const me = await api("me", null);
-    if(!me.authorized){ gate("🔒","Немає доступу","Ця анкета лише для запрошених таємних покупців."+(me.reason?` [${me.reason}]`:"")+(me.id?` · Ваш ID: ${me.id}`:"")+(me.dbg?" "+JSON.stringify(me.dbg):"")); return; }
+    if(!me.authorized){ gate("🔒","Немає доступу","Ця анкета лише для запрошених таємних покупців."); return; }
+    if(me.is_admin){ adminApp(); return; }
     SESSION=me;
     const open=(me.assignments||[]).filter(a=>a.status!=="done");
     if(open.length===0){ gate("📭","Немає активних завдань","Наразі для вас немає призначених перевірок."); return; }
