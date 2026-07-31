@@ -459,6 +459,39 @@ function gate(ic,title,text){
   if(tg?.MainButton) tg.MainButton.hide();
 }
 function showForm(){ document.body.classList.remove("gating"); }
+
+// Екран вводу коду для покупця
+function showCodeEntry(err){
+  document.getElementById("gate").innerHTML =
+    `<div class="ic">🔑</div><h2>Вхід за кодом</h2>
+     <p>Введіть код доступу, який вам надіслали.</p>
+     <input id="codeInput" type="text" autocapitalize="characters" placeholder="Напр. K7X4QM"
+       style="max-width:230px;margin:16px auto 0;text-align:center;text-transform:uppercase;font-size:19px;letter-spacing:3px;font-weight:700;">
+     ${err?`<p style="color:var(--no);margin-top:10px">${err}</p>`:""}
+     <button id="codeBtn" style="display:block;margin:14px auto 0;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;">Увійти</button>`;
+  document.body.classList.add("gating");
+  document.body.classList.remove("admin");
+  if(tg?.MainButton) tg.MainButton.hide();
+  const inp = document.getElementById("codeInput");
+  const btn = document.getElementById("codeBtn");
+  const go = async () => {
+    const code = (inp.value||"").trim();
+    if(!code){ inp.focus(); return; }
+    btn.textContent = "Перевірка…"; btn.disabled = true;
+    try{
+      const res = await api("redeem_code", { code });
+      if(res.ok){
+        applyAssignment(res.assignment); showForm();
+        if(tg?.MainButton){ tg.MainButton.setText("Надіслати звіт"); tg.MainButton.show(); }
+        updateProg();
+      } else {
+        showCodeEntry(res.error==="used" ? "Цей код уже використано." : res.error==="not_found" ? "Код не знайдено. Перевірте ще раз." : "Введіть код.");
+      }
+    }catch(e){ showCodeEntry("Помилка зʼєднання. Спробуйте ще раз."); }
+  };
+  btn.onclick = go;
+  inp.addEventListener("keydown", e => { if(e.key==="Enter") go(); });
+}
 function applyAssignment(a){
   ASSIGNMENT=a;
   const sel=document.getElementById("locSelect");
@@ -473,7 +506,7 @@ function applyAssignment(a){
 const scoreCol = (p) => p>=80?"var(--yes)":p>=60?"#e0a11a":"var(--no)";
 const scoreBg  = (p) => p>=80?"var(--yes-bg)":p>=60?"rgba(224,161,26,.16)":"var(--no-bg)";
 const A = document.getElementById("admin");
-let ADMIN_REPORTS = [];
+let ADMIN_REPORTS = [], ADMIN_LOCATIONS = [];
 
 async function adminApp(){
   document.body.classList.remove("gating");
@@ -487,24 +520,53 @@ async function adminApp(){
   }catch(e){ A.innerHTML = `<div class="empty">Помилка завантаження звітів.</div>`; }
 }
 
+function codeGenBlock(){
+  const opts = ADMIN_LOCATIONS.map(l=>`<option value="${l.id}">${l.name}</option>`).join("");
+  return `<div class="d-sec"><div class="d-sec-h"><span>Створити код доступу</span></div>
+    <div class="d-txt">
+      <select id="cgLoc" style="margin-bottom:8px">${opts||"<option>—</option>"}</select>
+      <button id="cgBtn" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Згенерувати код</button>
+      <div id="cgResult" style="margin-top:10px"></div>
+    </div></div>`;
+}
+function attachCodeGen(){
+  const btn = document.getElementById("cgBtn"); if(!btn) return;
+  btn.onclick = async () => {
+    const location_id = +document.getElementById("cgLoc").value; if(!location_id) return;
+    btn.textContent="Генерую…"; btn.disabled=true;
+    const rd = document.getElementById("cgResult");
+    try{
+      const res = await api("generate_code", { location_id });
+      if(res.ok) rd.innerHTML = `<div style="text-align:center;padding:12px;background:var(--field);border-radius:9px;">
+        <div style="font-size:12px;color:var(--hint)">Код для «${res.location_name}» · ${res.period}</div>
+        <div style="font-size:28px;font-weight:800;letter-spacing:4px;margin:6px 0">${res.code}</div>
+        <div style="font-size:12px;color:var(--hint)">Надішліть покупцю. Одноразовий.</div></div>`;
+      else rd.innerHTML = `<div style="color:var(--no);font-size:13px">Помилка: ${res.error}</div>`;
+    }catch(e){ rd.innerHTML = `<div style="color:var(--no);font-size:13px">Помилка зʼєднання.</div>`; }
+    btn.textContent="Згенерувати код"; btn.disabled=false;
+  };
+}
 function renderList(){
   const reps = ADMIN_REPORTS;
   const avg = reps.length ? Math.round(reps.reduce((s,r)=>s+(+r.score_pct||0),0)/reps.length) : 0;
-  let h = `<div class="adm-h">Кабінет адміністратора<div class="adm-sub">Звіти таємних покупців</div></div>`;
+  let h = `<div class="adm-h">Кабінет адміністратора<div class="adm-sub">Таємні покупці</div></div>`;
   h += `<div class="stat-row">
     <div class="stat"><b>${reps.length}</b><span>звітів</span></div>
     <div class="stat"><b style="color:${scoreCol(avg)}">${avg}%</b><span>середній бал</span></div></div>`;
-  if(!reps.length){ h += `<div class="empty">Ще немає жодного звіту.</div>`; A.innerHTML=h; return; }
-  reps.forEach((r,i)=>{
+  h += codeGenBlock();
+  h += `<div class="d-sec"><div class="d-sec-h"><span>Звіти</span></div></div>`;
+  if(!reps.length) h += `<div class="empty">Ще немає жодного звіту.</div>`;
+  else reps.forEach((r,i)=>{
     const p = Math.round(+r.score_pct||0);
     const date = r.answers?.date || (r.created_at ? new Date(r.created_at).toLocaleDateString("uk-UA") : "—");
     h += `<div class="rep-card" data-i="${i}">
       <div class="rep-main"><div class="rep-loc">${r.location_name||"—"}</div>
-        <div class="rep-meta">${date}${r.period?" · "+r.period:""}</div></div>
+        <div class="rep-meta">${date}${r.period?" · "+r.period:""}${r.shopper_name?" · "+r.shopper_name:""}</div></div>
       <div class="score-badge" style="background:${scoreBg(p)};color:${scoreCol(p)}">${p}%</div>
       <div class="chev">›</div></div>`;
   });
   A.innerHTML = h;
+  attachCodeGen();
   A.querySelectorAll(".rep-card").forEach(c=>c.onclick=()=>openDetail(ADMIN_REPORTS[+c.dataset.i]));
   document.querySelector(".scroll").scrollTop = 0;
 }
@@ -555,14 +617,9 @@ async function initApp(){
   gate("⏳","Перевірка доступу…","Хвилинку.");
   try{
     const me = await api("me", null);
-    if(!me.authorized){ gate("🔒","Немає доступу","Ця анкета лише для запрошених таємних покупців."); return; }
-    if(me.is_admin){ adminApp(); return; }
-    SESSION=me;
-    const open=(me.assignments||[]).filter(a=>a.status!=="done");
-    if(open.length===0){ gate("📭","Немає активних завдань","Наразі для вас немає призначених перевірок."); return; }
-    applyAssignment(open[0]);
-    showForm();
-    tg.MainButton.setText("Надіслати звіт"); tg.MainButton.show();
+    if(!me.authorized){ gate("🔒","Немає доступу","Відкрийте, будь ласка, анкету через бота Кебабці."); return; }
+    if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; adminApp(); return; }
+    showCodeEntry();
   }catch(e){ gate("⚠️","Помилка зʼєднання","Спробуйте, будь ласка, пізніше."); }
 }
 initApp();
