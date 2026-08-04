@@ -117,6 +117,27 @@
   .pvbanner{background:#fff4d6; color:#7a5b00; font-size:12.5px; text-align:center; padding:8px 14px;}
   @media (prefers-color-scheme: dark){ .pvbanner{background:rgba(255,200,0,.14); color:#e8c24a;} }
 
+  /* ---- ВЛАСНИЙ ДРОПДАУН ---- */
+  .csel{position:relative;}
+  .csel-trig{display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:var(--field); border-radius:9px; padding:11px 12px; font-size:15px; font-weight:500; cursor:pointer;}
+  .csel-trig.on{box-shadow:inset 0 0 0 1.5px var(--btn);}
+  .csel-val.ph{color:var(--hint); font-weight:400;}
+  .csel-chev{color:var(--hint); font-size:11px; flex-shrink:0;}
+  .csel-menu{display:none; position:absolute; left:0; right:0; top:calc(100% + 5px); z-index:60;
+    background:var(--card); border:1px solid var(--sep); border-radius:11px;
+    box-shadow:0 10px 34px rgba(0,0,0,.35); max-height:260px; overflow-y:auto;}
+  .csel-menu.on{display:block;}
+  .csel-opt{padding:12px 14px; font-size:15px; cursor:pointer; border-bottom:1px solid var(--sep);}
+  .csel-opt:last-child{border-bottom:none;}
+  .csel-opt:active{background:var(--field);}
+  .csel.locked .csel-trig{opacity:.55; pointer-events:none;}
+  .csel.locked .csel-chev{display:none;}
+
+  /* пропущені питання */
+  .missing{box-shadow:inset 0 0 0 1.5px var(--no); border-radius:9px;}
+  .missing .q, .missing .lab{color:var(--no);}
+
   /* ---- АДМІН-КАБІНЕТ ---- */
   #admin{display:none;}
   body.admin #formwrap{display:none;}
@@ -195,13 +216,13 @@ const LOCATIONS = [
 // bin — Так/Ні/Н·Д (w — вага, ПРИХОВАНА від покупця); scale — 1..10; txt/txtarea/sel — поля
 const META = [
   {k:"date", t:"date", label:"Дата візиту", req:1},
-  {k:"entry_time", t:"time", label:"Час входу"},
-  {k:"exit_time", t:"time", label:"Час виходу"},
-  {k:"employee", t:"txt", label:"Імʼя або опис зовнішності працівника"},
+  {k:"entry_time", t:"time", label:"Час входу", req:1},
+  {k:"exit_time", t:"time", label:"Час виходу", req:1},
+  {k:"employee", t:"txt", label:"Імʼя або опис зовнішності працівника", req:1},
   {k:"employee_desc", t:"txt", label:"Зовнішній вигляд співробітника"},
-  {k:"receipt_num", t:"txt", label:"Номер чека", hint:"Номер присутній на чеку"},
-  {k:"amount", t:"txt", label:"Загальна сума (з чеку), грн"},
-  {k:"order", t:"txtarea", label:"Ваше замовлення (позиції, кількість та ціна)"},
+  {k:"receipt_num", t:"txt", label:"Номер чека", hint:"Номер присутній на чеку", req:1},
+  {k:"amount", t:"txt", label:"Загальна сума (з чеку), грн", req:1},
+  {k:"order", t:"txtarea", label:"Ваше замовлення (позиції, кількість та ціна)", req:1},
 ];
 
 const SECTIONS = [
@@ -293,6 +314,27 @@ const f = document.getElementById("f");
 const el = h => { const t=document.createElement("template"); t.innerHTML=h.trim(); return t.content.firstChild; };
 function group(cap){ f.append(el(`<div class="cap">${cap}</div>`)); const g=el(`<div class="group"></div>`); f.append(g); return g; }
 
+// Власний дропдаун у темі Telegram (замість системного <select>)
+function mkSelect(options, {value="", placeholder="— оберіть —", onChange}={}){
+  const wrap = el(`<div class="csel"></div>`);
+  const trig = el(`<div class="csel-trig"><span class="csel-val"></span><span class="csel-chev">▾</span></div>`);
+  const menu = el(`<div class="csel-menu"></div>`);
+  const valEl = trig.querySelector(".csel-val");
+  let cur = value;
+  const setVal = (v)=>{ cur=v; valEl.textContent = v || placeholder; valEl.classList.toggle("ph", !v); };
+  const close = ()=>{ menu.classList.remove("on"); trig.classList.remove("on"); document.removeEventListener("click", outside, true); };
+  const outside = (e)=>{ if(!wrap.contains(e.target)) close(); };
+  const open = ()=>{ document.querySelectorAll(".csel-menu.on").forEach(m=>m.classList.remove("on"));
+    menu.classList.add("on"); trig.classList.add("on"); setTimeout(()=>document.addEventListener("click", outside, true),0); };
+  options.forEach(o=>{ const opt=el(`<div class="csel-opt"></div>`); opt.textContent=o;
+    opt.onclick=()=>{ setVal(o); close(); haptic(); onChange&&onChange(o); }; menu.append(opt); });
+  setVal(value);
+  trig.onclick=(e)=>{ e.stopPropagation(); menu.classList.contains("on")?close():open(); };
+  wrap.append(trig, menu);
+  wrap._setVal=setVal; wrap._getVal=()=>cur;
+  return wrap;
+}
+
 // --- поле метаданих / txt / txtarea / sel / scale (спільний рендер контролю) ---
 function control(q){
   const wrap = el(`<div></div>`);
@@ -304,17 +346,16 @@ function control(q){
     }
     wrap.append(sc, el(`<div class="scale-ends"><span>${q.lo||""}</span><span>${q.hi||""}</span></div>`));
   } else if(q.t==="sel"){
-    const opts=[...q.opts, ...(q.other?["Інше"]:[])];
-    const sel=el(`<select><option value="">— оберіть —</option>${opts.map(o=>`<option>${o}</option>`).join("")}</select>`);
+    const base=[...q.opts, ...(q.other?["Інше"]:[])];
     let other;
     if(q.other){ other=el(`<input type="text" placeholder="Вкажіть свій варіант" style="margin-top:8px; display:none;">`);
       other.oninput=()=>{data[q.k]=other.value||null; updateProg();}; }
-    sel.onchange=()=>{
-      if(q.other && sel.value==="Інше"){ other.style.display="block"; data[q.k]=other.value||null; }
-      else { if(other) other.style.display="none"; data[q.k]=sel.value||null; }
+    const cs=mkSelect(base, { onChange:(v)=>{
+      if(q.other && v==="Інше"){ other.style.display="block"; data[q.k]=other.value||null; }
+      else { if(other) other.style.display="none"; data[q.k]=v||null; }
       updateProg();
-    };
-    wrap.append(sel); if(other) wrap.append(other);
+    }});
+    wrap.append(cs); if(other) wrap.append(other);
   } else if(q.t==="txtarea"){
     const i=el(`<textarea></textarea>`); i.oninput=()=>{data[q.k]=i.value||null; updateProg();}; wrap.append(i);
   } else { // txt/date/time
@@ -327,14 +368,18 @@ function control(q){
 // ================= ЛОКАЦІЯ + МЕТА =================
 (function(){
   const g = group("Локація та візит");
-  const rLoc = el(`<div class="row" id="locRow"><div class="q">Заклад<span class="req">*</span></div></div>`);
-  const sel = el(`<select id="locSelect"><option value="">— оберіть локацію —</option>${LOCATIONS.map(l=>`<option>${l}</option>`).join("")}<option value="__other">Інша (вписати адресу)</option></select>`);
+  const rLoc = el(`<div class="row" id="locRow" data-q="location"><div class="q">Заклад<span class="req">*</span></div></div>`);
   const other = el(`<input type="text" placeholder="Вкажіть адресу закладу" style="margin-top:8px; display:none;">`);
-  sel.onchange=()=>{ if(sel.value==="__other"){other.style.display="block"; data.location=other.value;} else {other.style.display="none"; data.location=sel.value;} updateProg(); };
   other.oninput=()=>{data.location=other.value; updateProg();};
-  rLoc.append(sel, other); g.append(rLoc);
+  const cs = mkSelect([...LOCATIONS, "Інша (вписати адресу)"], { placeholder:"— оберіть локацію —", onChange:(v)=>{
+    if(v==="Інша (вписати адресу)"){ other.style.display="block"; data.location=other.value; }
+    else { other.style.display="none"; data.location=v; }
+    updateProg();
+  }});
+  cs.id="locSelect";
+  rLoc.append(cs, other); g.append(rLoc);
   META.forEach(m=>{
-    const r=el(`<div class="row"><label class="fld"><span class="lab">${m.label}${m.req?'<span class="req">*</span>':''}</span></label></div>`);
+    const r=el(`<div class="row" data-q="${m.k}"><label class="fld"><span class="lab">${m.label}${m.req?'<span class="req">*</span>':''}</span></label></div>`);
     r.querySelector("label").append(control(m));
     if(m.hint) r.append(el(`<div class="hint">${m.hint}</div>`));
     g.append(r);
@@ -345,10 +390,10 @@ function control(q){
 SECTIONS.forEach(s=>{
   const g = group(s.title);
   s.q.forEach(q=>{
-    const r = el(`<div class="row"><div class="q">${q.q}</div></div>`);
+    const r = el(`<div class="row" data-q="${q.k}"><div class="q">${q.q}</div></div>`);
     if(!q.t || q.t==="bin"){
-      const seg=el(`<div class="seg"><button type="button" data-v="yes">Так</button><button type="button" data-v="no">Ні</button><button type="button" data-v="na">Н·Д</button></div>`);
-      seg.querySelectorAll("button").forEach(b=>b.onclick=()=>{data[q.k]=b.dataset.v; seg.querySelectorAll("button").forEach(x=>x.className=""); b.className="on-"+b.dataset.v; haptic(); updateProg();});
+      const seg=el(`<div class="seg"><button type="button" data-v="yes">Так</button><button type="button" data-v="no">Ні</button></div>`);
+      seg.querySelectorAll("button").forEach(b=>b.onclick=()=>{data[q.k]=b.dataset.v; seg.querySelectorAll("button").forEach(x=>x.className=""); b.className="on-"+b.dataset.v; r.classList.remove("missing"); haptic(); updateProg();});
       r.append(seg);
     } else {
       r.append(control(q));
@@ -386,19 +431,29 @@ function computeScore(){
   return {W,E,totW,totE,pct:totW?+(totE/totW*100).toFixed(2):0};
 }
 
-// ================= ПРОГРЕС / SUBMIT =================
+// ================= ВАЛІДАЦІЯ / ПРОГРЕС / SUBMIT =================
 const submitBtn=document.getElementById("submit");
+const isFilled = (v) => v!=null && v!=="";
+function requiredKeys(){
+  const keys=["location"];
+  META.forEach(m=>{ if(m.req) keys.push(m.k); });
+  SECTIONS.forEach(s=> s.q.forEach(q=>{ if(!q.t || q.t==="bin" || q.t==="scale" || q.t==="sel") keys.push(q.k); }));
+  return keys;
+}
+function plural(n){ const a=n%10,b=n%100; return (a===1&&b!==11)?"питання":(a>=2&&a<=4&&(b<10||b>=20))?"питання":"питань"; }
+function validate(){
+  document.querySelectorAll(".missing").forEach(e=>e.classList.remove("missing"));
+  const miss = requiredKeys().filter(k=>!isFilled(data[k]));
+  miss.forEach(k=>{ const r=document.querySelector(`[data-q="${k}"]`); if(r) r.classList.add("missing"); });
+  return miss;
+}
 function updateProg(){
-  const scored=SECTIONS.flatMap(s=>s.q).filter(q=>q.w);
-  const done=scored.filter(q=>data[q.k]).length;
-  const ok = data.location && data.date;
-  const label = ok ? `Надіслати звіт · ${done}/${scored.length}`
-              : data.location ? "Вкажіть дату візиту" : "Оберіть локацію та дату";
-  if(tg?.MainButton){
-    tg.MainButton.setText(ok?"Надіслати звіт":label);
-    ok?tg.MainButton.enable():tg.MainButton.disable();
-  }
-  submitBtn.textContent=label; submitBtn.disabled=!ok;
+  const req = requiredKeys();
+  const done = req.filter(k=>isFilled(data[k])).length;
+  req.forEach(k=>{ if(isFilled(data[k])){ const r=document.querySelector(`[data-q="${k}"]`); if(r) r.classList.remove("missing"); } });
+  const label = done===req.length ? "Надіслати звіт" : `Заповнено ${done}/${req.length}`;
+  if(tg?.MainButton){ tg.MainButton.setText(label); data.location?tg.MainButton.enable():tg.MainButton.disable(); }
+  submitBtn.textContent=label; submitBtn.disabled=!data.location;
 }
 function buildRecord(){
   const s=computeScore();
@@ -426,6 +481,13 @@ function showResultModal(s){
   document.getElementById("result").showModal();
 }
 async function doSubmit(){
+  const miss = validate();
+  if(miss.length){
+    const first = document.querySelector(".missing");
+    if(first) first.scrollIntoView({behavior:"smooth", block:"center"});
+    alertMsg(`Ще не заповнено ${miss.length} ${plural(miss.length)}. Дайте, будь ласка, відповідь на всі — вони виділені червоним.`);
+    return;
+  }
   const s=computeScore();
   if(!tg || !ASSIGNMENT){ showResultModal(s); return; }        // режим перегляду (браузер)
   if(tg.MainButton){ tg.MainButton.showProgress(); tg.MainButton.disable(); }
@@ -494,11 +556,10 @@ function showCodeEntry(err){
 }
 function applyAssignment(a){
   ASSIGNMENT=a;
-  const sel=document.getElementById("locSelect");
-  if(sel && a.location_name){
-    if(![...sel.options].some(o=>o.value===a.location_name||o.text===a.location_name))
-      sel.add(new Option(a.location_name, a.location_name));
-    sel.value=a.location_name; data.location=a.location_name; sel.disabled=true;
+  const cs=document.getElementById("locSelect");
+  if(cs && a.location_name){
+    cs._setVal(a.location_name); data.location=a.location_name;
+    cs.classList.add("locked");
   }
   updateProg();
 }
