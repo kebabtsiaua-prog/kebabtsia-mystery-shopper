@@ -7,21 +7,22 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root{
-    /* Фіксована СВІТЛА тема — щоб чорний логотип і тексти завжди читались */
-    --bg:#eef0f2; --card:#ffffff; --text:#1c1c1e; --hint:#8a8a8e;
-    --link:#00918f; --btn:#00AFAD; --btn-text:#ffffff;
-    --sep:rgba(0,0,0,.10);
-    --yes:#1aa64b; --yes-bg:rgba(26,166,75,.12);
-    --no:#e02d21;  --no-bg:rgba(224,45,33,.10);
-    --na:#8a8a8e;  --na-bg:rgba(0,0,0,.05);
-    --field:rgba(0,0,0,.05);
-    /* Фірмова палітра Кебабці */
-    --brand:#00AFAD; --brand2:#1BDAD6; --brand3:#76DAD2;
-    --yellow:#FFC400; --pink:#E30857; --pink2:#FF008C;
-    --accent:#00AFAD; --accent-text:#ffffff;
+    /* Telegram-тема з фолбеком на світлу тему Telegram */
+    --bg: var(--tg-theme-secondary-bg-color, #efeff4);
+    --card: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #000000);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --sep: rgba(60,60,67,.14);
+    --yes:#34c759; --yes-bg:rgba(52,199,89,.14);
+    --no:#ff3b30;  --no-bg:rgba(255,59,48,.12);
+    --na:#8e8e93;  --na-bg:rgba(120,120,128,.12);
+    --field:rgba(120,120,128,.08);
   }
   *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
-  html,body{background:var(--bg); color-scheme:light;}
+  html,body{background:var(--bg);}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     color:var(--text); font-size:16px; line-height:1.4;
@@ -42,17 +43,14 @@
 
   .scroll{padding:0 0 96px;}
 
-  /* Фірмова шапка з логотипом (без білого блоку — просто на світлому фоні) */
-  .brandhead{background:transparent; text-align:center; padding:20px 16px 8px;}
-  .brandhead img{height:76px; width:auto; display:inline-block;}
-  .brandhead .tagline{margin:8px 0 14px; font-size:11px; font-weight:800; letter-spacing:.18em;
-    text-transform:uppercase; color:var(--brand);}
-  .brandbar{height:3px; border-radius:2px; margin:0 16px 6px;
-    background:linear-gradient(90deg,var(--brand) 0%,var(--brand2) 34%,var(--yellow) 68%,var(--pink2) 100%);}
+  /* Логотип угорі (на темній темі інвертується у білий, щоб чорний лого був видний) */
+  .brandhead{text-align:center; padding:18px 16px 10px;}
+  .brandhead img{height:70px; width:auto; max-width:78%;}
+  html.tg-dark .brandhead img{filter:invert(1);}
 
   /* --- Згрупований список (iOS/Telegram settings style) --- */
-  .cap{font-size:12px; color:var(--brand); text-transform:uppercase; letter-spacing:.06em;
-    padding:20px 16px 7px; font-weight:800;}
+  .cap{font-size:13px; color:var(--hint); text-transform:uppercase; letter-spacing:.02em;
+    padding:18px 16px 7px; font-weight:400;}
   .group{background:var(--card); border-top:1px solid var(--sep); border-bottom:1px solid var(--sep);}
   .row{padding:11px 16px; border-bottom:1px solid var(--sep);}
   .row:last-child{border-bottom:none;}
@@ -72,7 +70,7 @@
   .scale{display:flex; gap:5px;}
   .scale button{flex:1; aspect-ratio:1; min-width:0; font-size:14px; font-weight:600; border:none; border-radius:8px;
     background:var(--field); color:var(--text); cursor:pointer; padding:0;}
-  .scale button.on{background:var(--accent); color:var(--accent-text);}
+  .scale button.on{background:var(--btn); color:var(--btn-text);}
   .scale-ends{display:flex; justify-content:space-between; font-size:11px; color:var(--hint); margin-top:6px;}
 
   input,textarea,select{
@@ -98,7 +96,7 @@
 
   /* нижня «MainButton» Telegram (симуляція; у реальному TG ховається) */
   .mainbtn{position:fixed; left:0; right:0; bottom:0; z-index:30; border:none; cursor:pointer;
-    background:var(--accent); color:var(--accent-text); font-size:16px; font-weight:700;
+    background:var(--btn); color:var(--btn-text); font-size:16px; font-weight:600;
     padding:16px; width:100%; max-width:440px; left:50%; transform:translateX(-50%);}
   .mainbtn:disabled{opacity:.5; cursor:not-allowed;}
   .is-tg .mainbtn{display:none;}
@@ -128,7 +126,7 @@
   .csel{position:relative;}
   .csel-trig{display:flex; align-items:center; justify-content:space-between; gap:8px;
     background:var(--field); border-radius:9px; padding:11px 12px; font-size:15px; font-weight:500; cursor:pointer;}
-  .csel-trig.on{box-shadow:inset 0 0 0 1.5px var(--brand);}
+  .csel-trig.on{box-shadow:inset 0 0 0 1.5px var(--btn);}
   .csel-val.ph{color:var(--hint); font-weight:400;}
   .csel-chev{color:var(--hint); font-size:11px; flex-shrink:0;}
   .csel-menu{display:none; position:absolute; left:0; right:0; top:calc(100% + 5px); z-index:60;
@@ -193,8 +191,7 @@
     <div class="dots">⋯</div>
   </div>
   <div class="scroll">
-    <div class="brandhead"><img src="logo.png" alt="Кебабця"><div class="tagline">Таємний покупець</div></div>
-    <div class="brandbar"></div>
+    <div class="brandhead"><img src="logo.png" alt="Кебабця"></div>
     <div id="gate" class="gate"></div>
     <div id="admin"></div>
     <div id="formwrap">
@@ -534,12 +531,12 @@ function showForm(){ document.body.classList.remove("gating"); }
 // Екран вводу коду для покупця
 function showCodeEntry(err){
   document.getElementById("gate").innerHTML =
-    `<div class="ic">🔑</div><h2>Вітаємо, таємний покупцю!</h2>
-     <p>Дякуємо, що допомагаєте Кебабці ставати кращою.<br>Введіть код доступу, який вам надіслали.</p>
+    `<div class="ic">🔑</div><h2>Вхід за кодом</h2>
+     <p>Введіть код доступу, який вам надіслали.</p>
      <input id="codeInput" type="text" autocapitalize="characters" placeholder="Напр. K7X4QM"
-       style="max-width:230px;margin:18px auto 0;text-align:center;text-transform:uppercase;font-size:20px;letter-spacing:3px;font-weight:800;">
+       style="max-width:230px;margin:16px auto 0;text-align:center;text-transform:uppercase;font-size:19px;letter-spacing:3px;font-weight:700;">
      ${err?`<p style="color:var(--no);margin-top:10px">${err}</p>`:""}
-     <button id="codeBtn" style="display:block;margin:16px auto 0;background:var(--accent);color:var(--accent-text);border:none;border-radius:11px;padding:13px 30px;font-size:15px;font-weight:700;cursor:pointer;">Увійти</button>`;
+     <button id="codeBtn" style="display:block;margin:14px auto 0;background:var(--btn);color:var(--btn-text);border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;">Увійти</button>`;
   document.body.classList.add("gating");
   document.body.classList.remove("admin");
   if(tg?.MainButton) tg.MainButton.hide();
@@ -595,7 +592,7 @@ function codeGenBlock(){
   return `<div class="d-sec"><div class="d-sec-h"><span>Створити код доступу</span></div>
     <div class="d-txt">
       <select id="cgLoc" style="margin-bottom:8px">${opts||"<option>—</option>"}</select>
-      <button id="cgBtn" style="width:100%;background:var(--accent);color:var(--accent-text);border:none;border-radius:9px;padding:11px;font-weight:700;cursor:pointer;">Згенерувати код</button>
+      <button id="cgBtn" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Згенерувати код</button>
       <div id="cgResult" style="margin-top:10px"></div>
     </div></div>`;
 }
@@ -683,7 +680,8 @@ async function initApp(){
   }
   document.documentElement.classList.add("is-tg");
   tg.ready(); tg.expand();
-  try{ tg.MainButton.setParams({color:"#00AFAD", text_color:"#ffffff"}); }catch(e){}
+  const applyScheme = () => document.documentElement.classList.toggle("tg-dark", tg.colorScheme==="dark");
+  applyScheme(); tg.onEvent && tg.onEvent("themeChanged", applyScheme);
   tg.MainButton.onClick(doSubmit);
   gate("⏳","Перевірка доступу…","Хвилинку.");
   try{
