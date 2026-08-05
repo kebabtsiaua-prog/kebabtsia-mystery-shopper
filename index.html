@@ -22,6 +22,7 @@
     --field:rgba(120,120,128,.08);
   }
   *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html{-webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
   html,body{background:var(--bg);}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -148,29 +149,43 @@
   body.admin #formwrap{display:none;}
   body.admin .mainbtn{display:none;}
   body.admin #admin{display:block;}
-  .adm-h{padding:16px; font-size:20px; font-weight:700;}
+  .adm-h{padding:16px; font-size:21px; font-weight:800; letter-spacing:-.01em; text-wrap:balance;}
   .adm-sub{font-size:13px; color:var(--hint); font-weight:400; margin-top:2px;}
   .stat-row{display:flex; gap:8px; padding:0 16px 8px;}
   .stat{flex:1; background:var(--card); border:1px solid var(--sep); border-radius:12px; padding:12px; text-align:center;}
-  .stat b{font-size:22px; font-weight:700; display:block;}
+  .stat b{font-size:24px; font-weight:800; display:block; font-variant-numeric:tabular-nums; letter-spacing:-.01em;}
   .stat span{font-size:11px; color:var(--hint);}
   .rep-card{display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--sep);
-    border-radius:12px; padding:12px 14px; margin:8px 16px; cursor:pointer;}
-  .rep-card:active{opacity:.7;}
+    border-radius:13px; padding:12px 14px; margin:8px 16px; cursor:pointer;
+    transition-property:transform,background-color; transition-duration:130ms; transition-timing-function:ease-out;}
+  .rep-card:active{transform:scale(.985); background:var(--field);}
   .rep-main{flex:1; min-width:0;}
   .rep-loc{font-size:15px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-  .rep-meta{font-size:12px; color:var(--hint); margin-top:2px;}
-  .score-badge{font-size:15px; font-weight:800; padding:5px 11px; border-radius:999px; white-space:nowrap;}
+  .rep-meta{font-size:12px; color:var(--hint); margin-top:2px; font-variant-numeric:tabular-nums;}
+  .score-badge{font-size:15px; font-weight:800; padding:5px 11px; border-radius:999px; white-space:nowrap; font-variant-numeric:tabular-nums;}
   .chev{color:var(--hint); font-size:18px;}
   .empty{text-align:center; padding:50px 24px; color:var(--hint);}
   .rank-n{font-size:16px; font-weight:800; color:var(--hint); width:24px; text-align:center; flex-shrink:0;}
   .months{display:flex; gap:8px; overflow-x:auto; padding:0 16px 4px; -webkit-overflow-scrolling:touch;}
   .mchip{flex-shrink:0; padding:8px 15px; border-radius:999px; background:var(--field); font-size:13px;
-    font-weight:600; cursor:pointer; white-space:nowrap;}
+    font-weight:600; cursor:pointer; white-space:nowrap;
+    transition-property:transform,background-color,color; transition-duration:130ms; transition-timing-function:ease-out;}
+  .mchip:active{transform:scale(.95);}
   .mchip.on{background:var(--btn); color:var(--btn-text);}
-  .prog-track{height:9px; background:var(--field); border-radius:5px; overflow:hidden; margin-bottom:10px;}
-  .prog-fill{height:100%; background:var(--btn); border-radius:5px; transition:width .3s;}
-  .remain{font-size:12.5px; color:var(--hint); line-height:1.55;}
+  .panel{background:var(--card); border:1px solid var(--sep); border-radius:16px; margin:0 16px; padding:16px 16px 18px;}
+  .panel-top{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:11px;}
+  .big-num{font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.01em;}
+  .big-num .of{font-size:17px; font-weight:600; color:var(--hint);}
+  .pct-badge{font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--btn);}
+  .prog-track{height:10px; background:var(--field); border-radius:6px; overflow:hidden;}
+  .prog-fill{height:100%; background:linear-gradient(90deg,var(--btn),var(--btn)); border-radius:6px;
+    transition:width .4s cubic-bezier(.4,0,.2,1);}
+  .remain-h{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--hint); margin:16px 0 9px;}
+  .chips{display:flex; flex-wrap:wrap; gap:7px;}
+  .chip-loc{font-size:12.5px; padding:6px 11px; border-radius:999px; background:var(--field);
+    color:var(--text); line-height:1.25; text-wrap:pretty;}
+  .remain-done{font-size:14px; color:var(--yes); font-weight:600; margin-top:14px;}
 
   /* деталі звіту */
   .d-top{padding:14px 16px; border-bottom:1px solid var(--sep); position:sticky; top:0; background:var(--bg); z-index:5;}
@@ -650,11 +665,20 @@ function renderList(){
       <div class="stat"><b style="color:${scoreCol(avg)}">${avg}%</b><span>середній бал</span></div></div>`;
 
     // Прогрес по локаціях
-    h += `<div class="cap">Перевірено локацій</div><div class="group" style="padding:14px 16px">
-      <div class="d-sec-h" style="margin-bottom:8px"><span>${checked.size} з ${total}</span><span>${donePct}%</span></div>
-      <div class="prog-track"><div class="prog-fill" style="width:${donePct}%"></div></div>`;
-    if(remaining.length) h += `<div class="remain"><b>Ще не перевірено (${remaining.length}):</b> ${remaining.map(l=>l.name).join(", ")}</div>`;
-    else h += `<div class="remain" style="color:var(--yes);font-weight:600">Усі локації перевірено цього місяця! 🎉</div>`;
+    h += `<div class="cap">Перевірено локацій</div>
+      <div class="panel">
+        <div class="panel-top">
+          <span class="big-num">${checked.size}<span class="of">/${total}</span></span>
+          <span class="pct-badge">${donePct}%</span>
+        </div>
+        <div class="prog-track"><div class="prog-fill" style="width:${donePct}%"></div></div>`;
+    if(remaining.length){
+      h += `<div class="remain-h">Ще не перевірено · ${remaining.length}</div><div class="chips">`;
+      remaining.forEach(l=> h += `<span class="chip-loc">${l.name}</span>`);
+      h += `</div>`;
+    } else {
+      h += `<div class="remain-done">✓ Усі локації перевірено цього місяця</div>`;
+    }
     h += `</div>`;
 
     // Рейтинг локацій (найкращі → найгірші)
