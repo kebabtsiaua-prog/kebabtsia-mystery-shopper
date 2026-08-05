@@ -46,8 +46,9 @@
 
   /* Логотип угорі (на темній темі інвертується у білий, щоб чорний лого був видний) */
   .brandhead{text-align:center; padding:18px 16px 10px;}
-  .brandhead img{height:70px; width:auto; max-width:78%;}
-  html.tg-dark .brandhead img{filter:invert(1);}
+  .brandhead img{height:62px; width:auto; max-width:80%;}
+  /* На темній темі — чорний лого на охайному білому бейджі (без негативу) */
+  html.tg-dark .brandhead img{background:#fff; padding:9px 18px; border-radius:16px; height:56px;}
 
   /* --- Згрупований список (iOS/Telegram settings style) --- */
   .cap{font-size:13px; color:var(--hint); text-transform:uppercase; letter-spacing:.02em;
@@ -173,7 +174,14 @@
   .mchip:active{transform:scale(.95);}
   .mchip.on{background:var(--btn); color:var(--btn-text);}
   .panel{background:var(--card); border:1px solid var(--sep); border-radius:16px; margin:0 16px; padding:16px 16px 18px;}
-  .panel-top{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:11px;}
+  .panel-top{display:flex; align-items:center; justify-content:space-between; margin-bottom:11px;}
+  .accordion .panel-top{cursor:pointer; user-select:none;}
+  .pt-right{display:flex; align-items:center; gap:9px;}
+  .acc-chev{color:var(--hint); font-size:12px; transition:transform .2s ease;}
+  .accordion.open .acc-chev{transform:rotate(180deg);}
+  .panel-body{display:none; margin-top:6px;}
+  .accordion.open .panel-body{display:block;}
+  .chip-done{background:var(--yes-bg); color:var(--yes);}
   .big-num{font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.01em;}
   .big-num .of{font-size:17px; font-weight:600; color:var(--hint);}
   .pct-badge{font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--btn);}
@@ -664,22 +672,23 @@ function renderList(){
       <div class="stat"><b>${reps.length}</b><span>звітів</span></div>
       <div class="stat"><b style="color:${scoreCol(avg)}">${avg}%</b><span>середній бал</span></div></div>`;
 
-    // Прогрес по локаціях
+    // Прогрес по локаціях (згортуваний — тап по шапці розгортає списки)
+    const checkedNames = [...checked];
     h += `<div class="cap">Перевірено локацій</div>
-      <div class="panel">
-        <div class="panel-top">
+      <div class="panel accordion" id="locPanel">
+        <div class="panel-top" id="locHead">
           <span class="big-num">${checked.size}<span class="of">/${total}</span></span>
-          <span class="pct-badge">${donePct}%</span>
+          <span class="pt-right"><span class="pct-badge">${donePct}%</span><span class="acc-chev">▾</span></span>
         </div>
-        <div class="prog-track"><div class="prog-fill" style="width:${donePct}%"></div></div>`;
-    if(remaining.length){
-      h += `<div class="remain-h">Ще не перевірено · ${remaining.length}</div><div class="chips">`;
-      remaining.forEach(l=> h += `<span class="chip-loc">${l.name}</span>`);
-      h += `</div>`;
-    } else {
-      h += `<div class="remain-done">✓ Усі локації перевірено цього місяця</div>`;
-    }
-    h += `</div>`;
+        <div class="prog-track"><div class="prog-fill" style="width:${donePct}%"></div></div>
+        <div class="panel-body">
+          ${checkedNames.length ? `<div class="remain-h" style="color:var(--yes)">Перевірено · ${checkedNames.length}</div>
+            <div class="chips">${checkedNames.map(n=>`<span class="chip-loc chip-done">${n}</span>`).join("")}</div>` : ""}
+          ${remaining.length ? `<div class="remain-h">Ще не перевірено · ${remaining.length}</div>
+            <div class="chips">${remaining.map(l=>`<span class="chip-loc">${l.name}</span>`).join("")}</div>`
+            : `<div class="remain-done">✓ Усі локації перевірено цього місяця</div>`}
+        </div>
+      </div>`;
 
     // Рейтинг локацій (найкращі → найгірші)
     h += `<div class="cap">Рейтинг локацій</div>`;
@@ -698,6 +707,8 @@ function renderList(){
 
   A.innerHTML = h;
   attachCodeGen();
+  const locHead = document.getElementById("locHead");
+  if(locHead) locHead.onclick = () => document.getElementById("locPanel").classList.toggle("open");
   A.querySelectorAll(".mchip[data-p]").forEach(c=>c.onclick=()=>{ ADMIN_PERIOD=c.dataset.p; renderList(); });
   A.querySelectorAll(".rep-card").forEach(c=>c.onclick=()=>openDetail(ADMIN_REPORTS[+c.dataset.i]));
   document.querySelector(".scroll").scrollTop = 0;
