@@ -102,6 +102,18 @@ Deno.serve(async (req) => {
       });
       if (error) return json({ ok: false, error: error.message }, 500);
       await db.from("assignments").update({ status: "done", shopper_id: tgUser.id, used_at: new Date().toISOString() }).eq("id", asg.id);
+
+      // Повідомлення покупцю в чат після здачі
+      try {
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            chat_id: tgUser.id, parse_mode: "HTML",
+            text: "✅ <b>Дякуємо! Ваш звіт прийнято.</b>\n\nЩоб отримати бонуси — напишіть менеджеру, з яким ви спілкувались, і повідомте, що заповнили анкету таємного покупця.\n\nДякуємо, що допомагаєте Кебабці ставати кращою! 🧡",
+          }),
+        });
+      } catch (_) { /* не критично */ }
+
       return json({ ok: true });
     }
 
