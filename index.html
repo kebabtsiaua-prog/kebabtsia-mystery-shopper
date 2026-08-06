@@ -319,10 +319,10 @@ const SECTIONS = [
     {k:"scale_speed", t:"scale", q:"Швидкість обслуговування", lo:"Дуже повільно", hi:"Дуже оперативно"},
     {k:"scale_convenience", t:"scale", q:"Зручність оформлення замовлення", lo:"Незручно", hi:"Легко і зрозуміло"},
     {k:"scale_interior", t:"scale", q:"Інтер'єр (комфорт для відвідувача)", lo:"Не сподобався", hi:"Перевершив"},
-    {k:"better_than", t:"txt", q:"У цій мережі КРАЩЕ, ніж…"},
-    {k:"worse_than", t:"txt", q:"У цій мережі ГІРШЕ, ніж…"},
-    {k:"liked", t:"txtarea", q:"Що сподобалось під час візиту"},
-    {k:"disliked", t:"txtarea", q:"Що не сподобалось під час візиту"},
+    {k:"better_than", t:"txt", q:"У цій мережі КРАЩЕ, ніж…", req:1},
+    {k:"worse_than", t:"txt", q:"У цій мережі ГІРШЕ, ніж…", req:1},
+    {k:"liked", t:"txtarea", q:"Що сподобалось під час візиту", req:1},
+    {k:"disliked", t:"txtarea", q:"Що не сподобалось під час візиту", req:1},
   ]},
   {id:"nps", title:"Підсумок і рекомендація", q:[
     {k:"nps", t:"scale", z:1, q:"Наскільки ймовірно, що порекомендуєте мережу (0–10)", lo:"Не порекомендую", hi:"Обовʼязково"},
@@ -430,7 +430,7 @@ function control(q){
 SECTIONS.forEach(s=>{
   const g = group(s.title);
   s.q.forEach(q=>{
-    const r = el(`<div class="row" data-q="${q.k}"><div class="q">${q.q}</div></div>`);
+    const r = el(`<div class="row" data-q="${q.k}"><div class="q">${q.q}${q.req?'<span class="req">*</span>':''}</div></div>`);
     if(!q.t || q.t==="bin"){
       const seg=el(`<div class="seg"><button type="button" data-v="yes">Так</button><button type="button" data-v="no">Ні</button></div>`);
       seg.querySelectorAll("button").forEach(b=>b.onclick=()=>{data[q.k]=b.dataset.v; seg.querySelectorAll("button").forEach(x=>x.className=""); b.className="on-"+b.dataset.v; r.classList.remove("missing"); haptic(); updateProg();});
@@ -503,7 +503,7 @@ const isFilled = (v) => v!=null && v!=="";
 function requiredKeys(){
   const keys=["location"];
   META.forEach(m=>{ if(m.req) keys.push(m.k); });
-  SECTIONS.forEach(s=> s.q.forEach(q=>{ if(!q.t || q.t==="bin" || q.t==="scale" || q.t==="sel") keys.push(q.k); }));
+  SECTIONS.forEach(s=> s.q.forEach(q=>{ if(!q.t || q.t==="bin" || q.t==="scale" || q.t==="sel" || q.req) keys.push(q.k); }));
   PHOTOS.forEach(p=> keys.push(p.k));
   return keys;
 }
