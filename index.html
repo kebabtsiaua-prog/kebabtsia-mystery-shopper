@@ -212,6 +212,10 @@
   .d-detail{font-size:12.5px; color:var(--hint); font-style:italic; margin-top:5px; padding-left:10px; border-left:2px solid var(--sep);}
   .d-txt{background:var(--card); border:1px solid var(--sep); border-radius:10px; padding:10px 12px; margin-bottom:6px; font-size:13.5px;}
   .d-txt .lbl{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--hint); margin-bottom:4px;}
+  .photo-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px;}
+  .photo-thumb{display:block; text-decoration:none; color:var(--hint);}
+  .photo-thumb img{width:100%; aspect-ratio:1; object-fit:cover; border-radius:10px; border:1px solid var(--sep); display:block;}
+  .photo-thumb span{display:block; font-size:11px; text-align:center; margin-top:4px;}
 </style>
 </head>
 <body>
@@ -442,20 +446,46 @@ SECTIONS.forEach(s=>{
 });
 
 // ================= ФОТО =================
+// Стискаємо фото на пристрої (менший розмір → швидке завантаження і менше сховища)
+function compressImage(file, maxDim=1280, quality=0.7){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width, h=img.height;
+      if(w>h && w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; }
+      else if(h>=w && h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; }
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      c.getContext("2d").drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL("image/jpeg", quality));
+    };
+    img.onerror=reject;
+    img.src=URL.createObjectURL(file);
+  });
+}
 (function(){
   f.append(el(`<div class="cap">Фотодокази<span class="req">*</span> — обовʼязкові</div>`));
   const g=el(`<div class="group"></div>`); f.append(g);
   PHOTOS.forEach(p=>{
-    const row=el(`<div class="photo"><div class="name">${p.label}<span class="req">*</span></div></div>`);
+    const row=el(`<div class="photo" data-q="${p.k}"><div class="name">${p.label}<span class="req">*</span></div></div>`);
     const img=el(`<img class="thumb">`);
     const btn=el(`<button type="button" class="photo-btn">📷 Додати</button>`);
     const inp=el(`<input type="file" accept="image/*" capture="environment">`);
     btn.onclick=()=>inp.click();
-    inp.onchange=()=>{ const file=inp.files[0]; data[p.k]=file?file.name:null;
-      if(file){img.src=URL.createObjectURL(file); img.style.display="block"; btn.textContent="✓ Змінити"; row.classList.add("done");} updateProg(); };
+    inp.onchange=async ()=>{
+      const file=inp.files[0];
+      if(!file){ data[p.k]=null; updateProg(); return; }
+      btn.textContent="Обробка…"; btn.disabled=true;
+      try{
+        const b64=await compressImage(file);
+        data[p.k]=b64;
+        img.src=b64; img.style.display="block"; btn.textContent="✓ Змінити"; row.classList.add("done"); row.classList.remove("missing");
+      }catch(e){ data[p.k]=null; btn.textContent="📷 Додати"; }
+      btn.disabled=false; updateProg();
+    };
     row.append(img, btn, inp); g.append(row);
   });
-  f.append(el(`<div class="hint" style="padding:8px 16px 0">У Telegram кнопка відкриває камеру або галерею. Фото завантажаться у сховище автоматично. У цьому прототипі вони поки не зберігаються.</div>`));
+  f.append(el(`<div class="hint" style="padding:8px 16px 0">Натисніть, щоб зробити фото або обрати з галереї. Усі 5 фото обовʼязкові.</div>`));
 })();
 
 // ================= ПІДРАХУНОК (модель 4Service) =================
@@ -474,6 +504,7 @@ function requiredKeys(){
   const keys=["location"];
   META.forEach(m=>{ if(m.req) keys.push(m.k); });
   SECTIONS.forEach(s=> s.q.forEach(q=>{ if(!q.t || q.t==="bin" || q.t==="scale" || q.t==="sel") keys.push(q.k); }));
+  PHOTOS.forEach(p=> keys.push(p.k));
   return keys;
 }
 function plural(n){ const a=n%10,b=n%100; return (a===1&&b!==11)?"питання":(a>=2&&a<=4&&(b<10||b>=20))?"питання":"питань"; }
@@ -493,15 +524,19 @@ function updateProg(){
 }
 function buildRecord(){
   const s=computeScore();
+  // Відповіді без важких base64-фото
+  const answers={}; Object.keys(data).forEach(k=>{ if(!k.startsWith("photo_")) answers[k]=data[k]; });
+  // Фото окремо: {receipt: base64, facade: ...}
+  const photos={}; PHOTOS.forEach(p=>{ const slot=p.k.replace("photo_",""); if(data[p.k]) photos[slot]=data[p.k]; });
   return {
     assignment_id: ASSIGNMENT?.id ?? null,
     location_id: ASSIGNMENT?.location_id ?? null,
     location_name: data.location,
     period: ASSIGNMENT?.period ?? null,
-    answers: {...data},
+    answers,
     score_pct: s.pct, score_earned: s.totE, score_max: s.totW,
     section_scores: Object.fromEntries(Object.keys(s.W).map(k=>[k,{earned:s.E[k],max:s.W[k]}])),
-    photos: null,
+    photos,
   };
 }
 function showResultModal(s){
@@ -741,6 +776,14 @@ function openDetail(r){
     });
     h += `</div>`;
   });
+  if(r.photos && Object.keys(r.photos).length){
+    const labels={receipt:"Чек",facade:"Фасад",hall:"Зал",dish:"Страва",toilet:"Туалет"};
+    h += `<div class="d-sec"><div class="d-sec-h"><span>Фотодокази</span></div><div class="photo-grid">`;
+    Object.entries(r.photos).forEach(([slot,url])=>{
+      h += `<a href="${url}" target="_blank" rel="noopener" class="photo-thumb"><img src="${url}" alt="${labels[slot]||slot}" loading="lazy"><span>${labels[slot]||slot}</span></a>`;
+    });
+    h += `</div></div>`;
+  }
   A.innerHTML = h;
   document.getElementById("dback").onclick = renderList;
   document.querySelector(".scroll").scrollTop = 0;
