@@ -638,7 +638,8 @@ function applyAssignment(a){
 const scoreCol = (p) => p>=80?"var(--yes)":p>=60?"#e0a11a":"var(--no)";
 const scoreBg  = (p) => p>=80?"var(--yes-bg)":p>=60?"rgba(224,161,26,.16)":"var(--no-bg)";
 const A = document.getElementById("admin");
-let ADMIN_REPORTS = [], ADMIN_LOCATIONS = [], ADMIN_PERIOD = null;
+let ADMIN_REPORTS = [], ADMIN_LOCATIONS = [], ADMIN_PERIOD = null, IS_SUPER = false, ADMIN_ADMINS = [];
+const SESSION_ID = (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || null;
 
 async function adminApp(){
   document.body.classList.remove("gating");
@@ -648,6 +649,7 @@ async function adminApp(){
   try{
     const res = await api("admin_reports", null);
     ADMIN_REPORTS = res.reports || [];
+    if(IS_SUPER){ try{ ADMIN_ADMINS = (await api("admin_list", null)).admins || []; }catch(e){} }
     renderList();
   }catch(e){ A.innerHTML = `<div class="empty">Помилка завантаження звітів.</div>`; }
 }
@@ -683,6 +685,51 @@ function monthLabel(p){ const [y,m]=String(p).split("-"); return `${MONTHS_UK[+m
 function periodsList(){ return [...new Set(ADMIN_REPORTS.map(r=>r.period).filter(Boolean))].sort().reverse(); }
 function reportsFor(p){ return ADMIN_REPORTS.filter(r=>r.period===p).sort((a,b)=>(+b.score_pct||0)-(+a.score_pct||0)); }
 
+function adminMgmtBlock(){
+  return `<div class="cap">Адміністратори</div>
+    <div class="group" style="padding:14px 16px">
+      <div style="font-size:12.5px;color:var(--hint);margin-bottom:9px">Людина відкриває <b>@userinfobot</b> → отримує свій ID → впиши його сюди.</div>
+      <input id="aaId" type="number" inputmode="numeric" placeholder="Telegram ID" style="margin-bottom:8px">
+      <input id="aaName" type="text" placeholder="Ім'я (необовʼязково)" style="margin-bottom:8px">
+      <button id="aaBtn" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Додати адміна</button>
+      <div id="aaResult" style="margin-top:8px"></div>
+      <div id="aaList" style="margin-top:12px"></div>
+    </div>`;
+}
+function renderAdminList(){
+  const box=document.getElementById("aaList"); if(!box) return;
+  box.innerHTML = ADMIN_ADMINS.map(a=>{
+    const self = SESSION_ID && String(a.telegram_id)===String(SESSION_ID);
+    const badge = a.is_super ? ` <span style="font-size:11px;color:var(--btn);font-weight:700">головний</span>` : "";
+    const rm = self ? `<span style="font-size:12px;color:var(--hint)">це ви</span>`
+      : `<span class="aa-rm" data-id="${a.telegram_id}" style="font-size:13px;color:var(--no);cursor:pointer;font-weight:600">прибрати</span>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--sep)">
+      <div><div style="font-size:14px;font-weight:600">${a.full_name||"—"}${badge}</div>
+        <div style="font-size:12px;color:var(--hint);font-variant-numeric:tabular-nums">ID: ${a.telegram_id}</div></div>${rm}</div>`;
+  }).join("") || `<div style="font-size:13px;color:var(--hint)">Поки лише ви.</div>`;
+  box.querySelectorAll(".aa-rm").forEach(x=>x.onclick=async()=>{
+    const res=await api("remove_admin",{telegram_id:+x.dataset.id});
+    if(res.ok){ ADMIN_ADMINS=(await api("admin_list",null)).admins||[]; renderAdminList(); }
+    else alertMsg("Не вдалося прибрати: "+(res.error||"?"));
+  });
+}
+function attachAdminMgmt(){
+  const btn=document.getElementById("aaBtn"); if(!btn) return;
+  btn.onclick=async()=>{
+    const id=+document.getElementById("aaId").value;
+    const name=document.getElementById("aaName").value;
+    const rd=document.getElementById("aaResult");
+    if(!id){ rd.innerHTML=`<span style="color:var(--no);font-size:13px">Введіть Telegram ID (число).</span>`; return; }
+    btn.textContent="Додаю…"; btn.disabled=true;
+    const res=await api("add_admin",{telegram_id:id, name});
+    btn.textContent="Додати адміна"; btn.disabled=false;
+    if(res.ok){ rd.innerHTML=`<span style="color:var(--yes);font-size:13px">Додано ✓</span>`;
+      document.getElementById("aaId").value=""; document.getElementById("aaName").value="";
+      ADMIN_ADMINS=(await api("admin_list",null)).admins||[]; renderAdminList(); }
+    else rd.innerHTML=`<span style="color:var(--no);font-size:13px">Помилка: ${res.error||"?"}</span>`;
+  };
+  renderAdminList();
+}
 function renderList(){
   const periods = periodsList();
   if(!ADMIN_PERIOD || !periods.includes(ADMIN_PERIOD)) ADMIN_PERIOD = periods[0] || null;
@@ -695,6 +742,7 @@ function renderList(){
 
   let h = `<div class="adm-h">Кабінет адміністратора<div class="adm-sub">Таємні покупці</div></div>`;
   h += codeGenBlock();
+  if(IS_SUPER) h += adminMgmtBlock();
 
   // Місяці
   h += `<div class="cap">Місяць перевірок</div><div class="months">`;
@@ -742,6 +790,7 @@ function renderList(){
 
   A.innerHTML = h;
   attachCodeGen();
+  if(IS_SUPER) attachAdminMgmt();
   const locHead = document.getElementById("locHead");
   if(locHead) locHead.onclick = () => document.getElementById("locPanel").classList.toggle("open");
   A.querySelectorAll(".mchip[data-p]").forEach(c=>c.onclick=()=>{ ADMIN_PERIOD=c.dataset.p; renderList(); });
@@ -806,7 +855,7 @@ async function initApp(){
   try{
     const me = await api("me", null);
     if(!me.authorized){ gate("🔒","Немає доступу","Відкрийте, будь ласка, анкету через бота Кебабці."); return; }
-    if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; adminApp(); return; }
+    if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; IS_SUPER = me.is_super===true; adminApp(); return; }
     showCodeEntry();
   }catch(e){ gate("⚠️","Помилка зʼєднання","Спробуйте, будь ласка, пізніше."); }
 }
