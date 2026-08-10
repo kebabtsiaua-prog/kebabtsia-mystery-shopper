@@ -149,7 +149,9 @@
   #admin{display:none;}
   body.admin #formwrap{display:none;}
   body.admin .mainbtn{display:none;}
-  body.admin #admin{display:block;}
+  body.admin #admin{display:block; max-width:860px; margin:0 auto;}
+  /* у fullscreen на ноуті — відступ згори, щоб контент не ховався під кнопкою закриття */
+  .is-tg .scroll{padding-top:var(--tg-top,0);}
   .adm-h{padding:16px; font-size:21px; font-weight:800; letter-spacing:-.01em; text-wrap:balance;}
   .adm-sub{font-size:13px; color:var(--hint); font-weight:400; margin-top:2px;}
   .stat-row{display:flex; gap:8px; padding:0 16px 8px;}
@@ -655,22 +657,25 @@ async function adminApp(){
 }
 
 function codeGenBlock(){
-  const opts = ADMIN_LOCATIONS.map(l=>`<option value="${l.id}">${l.name}</option>`).join("");
-  return `<div class="d-sec"><div class="d-sec-h"><span>Створити код доступу</span></div>
-    <div class="d-txt">
-      <select id="cgLoc" style="margin-bottom:8px">${opts||"<option>—</option>"}</select>
+  return `<div class="cap">Створити код доступу</div>
+    <div class="group" style="padding:14px 16px">
+      <div id="cgLocHolder" style="margin-bottom:9px"></div>
       <button id="cgBtn" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Згенерувати код</button>
       <div id="cgResult" style="margin-top:10px"></div>
-    </div></div>`;
+    </div>`;
 }
 function attachCodeGen(){
-  const btn = document.getElementById("cgBtn"); if(!btn) return;
+  const holder = document.getElementById("cgLocHolder"); if(!holder) return;
+  const cs = mkSelect(ADMIN_LOCATIONS.map(l=>l.name), { placeholder:"— оберіть локацію —" });
+  holder.appendChild(cs);
+  const btn = document.getElementById("cgBtn");
   btn.onclick = async () => {
-    const location_id = +document.getElementById("cgLoc").value; if(!location_id) return;
-    btn.textContent="Генерую…"; btn.disabled=true;
+    const loc = ADMIN_LOCATIONS.find(l=>l.name===cs._getVal());
     const rd = document.getElementById("cgResult");
+    if(!loc){ rd.innerHTML = `<div style="color:var(--no);font-size:13px">Оберіть локацію.</div>`; return; }
+    btn.textContent="Генерую…"; btn.disabled=true;
     try{
-      const res = await api("generate_code", { location_id });
+      const res = await api("generate_code", { location_id: loc.id });
       if(res.ok) rd.innerHTML = `<div style="text-align:center;padding:12px;background:var(--field);border-radius:9px;">
         <div style="font-size:12px;color:var(--hint)">Код для «${res.location_name}» · ${res.period}</div>
         <div style="font-size:28px;font-weight:800;letter-spacing:4px;margin:6px 0">${res.code}</div>
@@ -848,6 +853,12 @@ async function initApp(){
   }
   document.documentElement.classList.add("is-tg");
   tg.ready(); tg.expand();
+  try{ tg.requestFullscreen && tg.requestFullscreen(); }catch(e){}
+  const applyInsets = () => { const t=(tg.contentSafeAreaInset?.top ?? 0)+(tg.safeAreaInset?.top ?? 0); document.documentElement.style.setProperty("--tg-top", t+"px"); };
+  applyInsets();
+  tg.onEvent && tg.onEvent("safeAreaChanged", applyInsets);
+  tg.onEvent && tg.onEvent("contentSafeAreaChanged", applyInsets);
+  tg.onEvent && tg.onEvent("fullscreenChanged", applyInsets);
   const applyScheme = () => document.documentElement.classList.toggle("tg-dark", tg.colorScheme==="dark");
   applyScheme(); tg.onEvent && tg.onEvent("themeChanged", applyScheme);
   tg.MainButton.onClick(doSubmit);
