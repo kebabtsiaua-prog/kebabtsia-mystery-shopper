@@ -465,6 +465,7 @@ function compressImage(file, maxDim=1280, quality=0.7){
     img.src=URL.createObjectURL(file);
   });
 }
+function readAsDataURL(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); }); }
 (function(){
   f.append(el(`<div class="cap">Фотодокази<span class="req">*</span> — обовʼязкові</div>`));
   const g=el(`<div class="group"></div>`); f.append(g);
@@ -472,17 +473,20 @@ function compressImage(file, maxDim=1280, quality=0.7){
     const row=el(`<div class="photo" data-q="${p.k}"><div class="name">${p.label}<span class="req">*</span></div></div>`);
     const img=el(`<img class="thumb">`);
     const btn=el(`<button type="button" class="photo-btn">📷 Додати</button>`);
-    const inp=el(`<input type="file" accept="image/*" capture="environment">`);
+    const inp=el(`<input type="file" accept="image/*">`);
     btn.onclick=()=>inp.click();
     inp.onchange=async ()=>{
       const file=inp.files[0];
-      if(!file){ data[p.k]=null; updateProg(); return; }
+      if(!file){ return; }
       btn.textContent="Обробка…"; btn.disabled=true;
-      try{
-        const b64=await compressImage(file);
-        data[p.k]=b64;
-        img.src=b64; img.style.display="block"; btn.textContent="✓ Змінити"; row.classList.add("done"); row.classList.remove("missing");
-      }catch(e){ data[p.k]=null; btn.textContent="📷 Додати"; }
+      let b64=null;
+      try{ b64=await compressImage(file); }
+      catch(e){
+        // запасний варіант: якщо не вдалось стиснути (напр. формат), беремо як є, якщо не завелике
+        try{ if(file.size < 3*1024*1024) b64=await readAsDataURL(file); }catch(_){}
+      }
+      if(b64){ data[p.k]=b64; img.src=b64; img.style.display="block"; btn.textContent="✓ Змінити"; row.classList.add("done"); row.classList.remove("missing"); }
+      else { data[p.k]=null; btn.textContent="📷 Спробувати ще"; alertMsg("Не вдалося додати це фото. Спробуйте зробити новий знімок або оберіть інше."); }
       btn.disabled=false; updateProg();
     };
     row.append(img, btn, inp); g.append(row);
