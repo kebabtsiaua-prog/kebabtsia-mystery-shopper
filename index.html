@@ -255,6 +255,17 @@ const LOCATIONS = [
   "Шептицький (Героїв Майдану 10)","Чернівці (Небесної сотні 19)"
 ];
 
+// Локації у ТЦ/ТРЦ — туалет там спільний (не наш), тож фото туалету не вимагаємо.
+// Якщо треба додати/прибрати локацію — просто зміни цей список.
+const MALL_LOCATIONS = new Set([
+  "Гетьмана Мазепи 1б (ТРЦ Спартак)",
+  "Форум Львів",
+  "Victoria Gardens",
+  "Чорновола 16і",
+  "Шептицький (Героїв Майдану 10)",
+]);
+let HIDE_TOILET_PHOTO = false;
+
 // ================= СТРУКТУРА =================
 // bin — Так/Ні/Н·Д (w — вага, ПРИХОВАНА від покупця); scale — 1..10; txt/txtarea/sel — поля
 const META = [
@@ -510,7 +521,7 @@ function requiredKeys(){
   const keys=["location"];
   META.forEach(m=>{ if(m.req) keys.push(m.k); });
   SECTIONS.forEach(s=> s.q.forEach(q=>{ if(!q.t || q.t==="bin" || q.t==="scale" || q.t==="sel" || q.req) keys.push(q.k); }));
-  PHOTOS.forEach(p=> keys.push(p.k));
+  PHOTOS.forEach(p=>{ if(p.k==="photo_toilet" && HIDE_TOILET_PHOTO) return; keys.push(p.k); });
   return keys;
 }
 function plural(n){ const a=n%10,b=n%100; return (a===1&&b!==11)?"питання":(a>=2&&a<=4&&(b<10||b>=20))?"питання":"питань"; }
@@ -638,6 +649,11 @@ function applyAssignment(a){
     cs._setVal(a.location_name); data.location=a.location_name;
     cs.classList.add("locked");
   }
+  // ТЦ/ТРЦ — сховати фото туалету (спільний, не наш)
+  HIDE_TOILET_PHOTO = MALL_LOCATIONS.has(a.location_name);
+  const tRow = document.querySelector('.photo[data-q="photo_toilet"]');
+  if(tRow) tRow.style.display = HIDE_TOILET_PHOTO ? "none" : "";
+  if(HIDE_TOILET_PHOTO) data.photo_toilet = null;
   updateProg();
 }
 // ================= АДМІН-КАБІНЕТ =================
@@ -810,11 +826,63 @@ function renderList(){
 const AV = { yes:["Так","var(--yes)"], no:["Ні","var(--no)"], na:["Н/Д","var(--na)"] };
 const binDisp = (v) => { const x=AV[v]; return x?`<span class="d-dot" style="background:${x[1]}"></span>${x[0]}`:`<span style="color:var(--hint)">—</span>`; };
 
+// Окремий самодостатній HTML-звіт по локації (можна відкрити/роздрукувати/переслати)
+function reportHTML(r){
+  const ans=r.answers||{}, ss=r.section_scores||{}, p=Math.round(+r.score_pct||0);
+  const col = p>=80?"#1aa64b":p>=60?"#c98a10":"#d92c20";
+  const AVp={yes:["Так","#1aa64b"],no:["Ні","#d92c20"],na:["Н/Д","#888"]};
+  const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+  const bin=v=>{const x=AVp[v];return x?`<b style="color:${x[1]}">${x[0]}</b>`:"—";};
+  const mrow=(l,v)=>v?`<tr><td class="l">${esc(l)}</td><td>${esc(v)}</td></tr>`:"";
+  let meta=`<table class="t">`;
+  meta+=mrow("Дата", ans.date);
+  meta+=mrow("Час у закладі", (ans.entry_time||ans.exit_time)?((ans.entry_time||"—")+" – "+(ans.exit_time||"—")):"");
+  meta+=mrow("Співробітник", [ans.employee,ans.employee_desc].filter(Boolean).join(" · "));
+  meta+=mrow("Чек", [ans.receipt_num&&("№ "+ans.receipt_num), ans.amount&&(ans.amount+" грн")].filter(Boolean).join(" · "));
+  meta+=mrow("Замовлення", ans.order);
+  meta+=`</table>`;
+  let secs="";
+  SECTIONS.forEach(s=>{
+    const sc=ss[s.id]; const pct=sc&&sc.max?Math.round(sc.earned/sc.max*100):null;
+    const pc=pct==null?"":pct>=80?"#1aa64b":pct>=60?"#c98a10":"#d92c20";
+    secs+=`<h3>${esc(s.title)}${pct!=null?`<span class="sp" style="color:${pc}">${sc.earned}/${sc.max} · ${pct}%</span>`:""}</h3><table class="t">`;
+    s.q.forEach(q=>{
+      const v=ans[q.k]; const det=q.d&&ans[q.k+"_detail"]?`<div class="det">${esc(ans[q.k+"_detail"])}</div>`:"";
+      if(!q.t||q.t==="bin") secs+=`<tr><td>${esc(q.q)}</td><td class="a">${bin(v)}${det}</td></tr>`;
+      else if(q.t==="scale") secs+=`<tr><td>${esc(q.q)}</td><td class="a">${v!=null?esc(v)+"/10":"—"}</td></tr>`;
+      else if(v) secs+=`<tr><td>${esc(q.q)}</td><td class="a">${esc(v)}${det}</td></tr>`;
+    });
+    secs+=`</table>`;
+  });
+  return `<!DOCTYPE html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Звіт — ${esc(r.location_name)}</title>
+<style>*{box-sizing:border-box}body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:760px;margin:0 auto;padding:24px;color:#1a1a1a;font-size:14px;line-height:1.5}
+h1{font-size:22px;margin:0 0 4px}.sub{color:#666;font-size:13px;margin-bottom:14px}
+.big{font-size:34px;font-weight:800;color:${col};float:right;line-height:1}
+table.t{width:100%;border-collapse:collapse;margin-bottom:6px}td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top}
+td.l{color:#888;width:150px;font-size:12px;text-transform:uppercase}td.a{text-align:right}
+h3{font-size:14px;margin:18px 0 6px;padding-bottom:4px;border-bottom:2px solid #eaeaea}h3 .sp{float:right;font-weight:700}
+.det{color:#999;font-style:italic;font-size:12px;margin-top:3px}@media print{body{padding:0}}</style></head>
+<body><div class="big">${p}%</div><h1>${esc(r.location_name||"—")}</h1>
+<div class="sub">Звіт таємного покупця · ${esc(ans.date||"")}${r.period?" · "+esc(r.period):""} · ${r.score_earned}/${r.score_max} балів</div>
+${meta}${secs}</body></html>`;
+}
+function downloadReport(r){
+  try{
+    const blob=new Blob([reportHTML(r)],{type:"text/html;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url;
+    const safe=(r.location_name||"локація").replace(/[\\/:*?"<>|]+/g,"_").replace(/\s+/g,"_");
+    a.download=`Звіт_${safe}_${r.period||""}.html`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+  }catch(e){ alertMsg("Не вдалося сформувати файл: "+e.message); }
+}
 function openDetail(r){
   const ans = r.answers||{}, ss = r.section_scores||{}, p = Math.round(+r.score_pct||0);
   let h = `<div class="d-top"><div class="d-back" id="dback">‹ Усі звіти</div>
     <div class="d-scorerow"><div class="d-loc">${r.location_name||"—"}</div><div class="d-big" style="color:${scoreCol(p)}">${p}%</div></div>
     <div class="rep-meta">${ans.date||""}${r.period?" · "+r.period:""} · ${r.score_earned}/${r.score_max} балів</div></div>`;
+  h += `<button id="dlBtn" style="display:block;width:calc(100% - 32px);margin:0 16px 6px;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">⬇ Завантажити цей звіт</button>`;
   const line=(lbl,val)=> val?`<div class="d-txt"><div class="lbl">${lbl}</div>${val}</div>`:"";
   h += `<div class="d-sec">`;
   h += line("Час у закладі", (ans.entry_time||ans.exit_time)?((ans.entry_time||"—")+" – "+(ans.exit_time||"—")):"");
@@ -844,6 +912,7 @@ function openDetail(r){
   }
   A.innerHTML = h;
   document.getElementById("dback").onclick = renderList;
+  document.getElementById("dlBtn").onclick = ()=>downloadReport(r);
   document.querySelector(".scroll").scrollTop = 0;
 }
 
