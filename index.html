@@ -135,7 +135,7 @@
   .csel-chev{color:var(--hint); font-size:11px; flex-shrink:0;}
   .csel-menu{display:none; position:absolute; left:0; right:0; top:calc(100% + 5px); z-index:60;
     background:var(--card); border:1px solid var(--sep); border-radius:11px;
-    box-shadow:0 10px 34px rgba(0,0,0,.35); max-height:260px; overflow-y:auto;}
+    box-shadow:0 10px 34px rgba(0,0,0,.35); max-height:min(60vh,420px); overflow-y:auto;}
   .csel-menu.on{display:block;}
   .csel-opt{padding:12px 14px; font-size:15px; cursor:pointer; border-bottom:1px solid var(--sep);}
   .csel-opt:last-child{border-bottom:none;}
@@ -163,7 +163,9 @@
   .h2{display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin:24px 16px 8px;}
   .h2 b{font-size:16px; font-weight:800; letter-spacing:-.01em;}
   .h2 span{font-size:12.5px; color:var(--hint); text-align:right;}
-  .card{background:var(--card); border:1px solid var(--sep); border-radius:14px; margin:0 16px; overflow:hidden;}
+  .card{background:var(--card); border:1px solid var(--sep); border-radius:14px; margin:0 16px;}
+  .card > :first-child{border-top-left-radius:13px; border-top-right-radius:13px;}
+  .card > :last-child{border-bottom-left-radius:13px; border-bottom-right-radius:13px;}
   .lbl{font-size:10.5px; letter-spacing:1px; text-transform:uppercase; color:var(--hint); font-weight:700;}
   .abtn{width:100%; background:var(--btn); color:var(--btn-text); border:none; border-radius:10px; padding:12px;
     font-size:15px; font-weight:700; cursor:pointer; font-family:inherit;}
