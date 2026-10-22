@@ -919,7 +919,7 @@ function reportInnerHTML(r, photosData){
       const detail=d?`<div style="font-size:12.5px;color:#666;font-style:italic;margin-top:3px">«${esc(d)}»</div>`:"";
       const row=(left,right)=>`<div data-b style="display:flex;gap:14px;align-items:flex-start;padding:9px 0;border-top:1px solid #f0f1f3">
         <div style="flex:1;font-size:13.5px">${left}</div><div style="flex-shrink:0;text-align:right">${right}</div></div>`;
-      if(!q.t||q.t==="bin") rows.push(row(esc(q.q)+detail, pill(a)));
+      if(!q.t||q.t==="bin"){ if(a==null) return; rows.push(row(esc(q.q)+detail, pill(a))); } // null = не рахується (туалет у ТЦ)
       else if(q.t==="scale"){
         if(a==null) return;
         const n=+a, c=tone(n*10), start=q.z?0:1;
@@ -1073,6 +1073,7 @@ function openDetail(r){
     h += `<div class="d-sec"><div class="d-sec-h"><span>${s.title}</span>${pct!=null?`<span class="d-sec-pct" style="color:${scoreCol(pct)}">${sc.earned}/${sc.max} · ${pct}%</span>`:""}</div>`;
     s.q.forEach(q=>{
       const v = ans[q.k], det = q.d && ans[q.k+"_detail"] ? `<div class="d-detail">${ans[q.k+"_detail"]}</div>` : "";
+      if((!q.t || q.t==="bin") && v==null) return; // не рахується (туалет у ТЦ)
       if(!q.t || q.t==="bin") h += `<div class="d-item"><div class="d-q">${q.q}</div><div class="d-a">${binDisp(v)}</div>${det}</div>`;
       else if(q.t==="scale") h += `<div class="d-item"><div class="d-q">${q.q}</div><div class="d-a">${v!=null?v+"/10":"—"}</div></div>`;
       else if(v) h += `<div class="d-txt"><div class="lbl">${q.q}</div>${v}${det}</div>`;
