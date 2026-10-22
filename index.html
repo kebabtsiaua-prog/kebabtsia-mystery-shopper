@@ -778,6 +778,7 @@ function renderList(){
     h += `<div class="stat-row">
       <div class="stat"><b>${reps.length}</b><span>звітів</span></div>
       <div class="stat"><b style="color:${scoreCol(avg)}">${avg}%</b><span>середній бал</span></div></div>`;
+    h += pdfPickBlock(reps);
 
     // Прогрес по локаціях (згортуваний — тап по шапці розгортає списки)
     const checkedNames = [...checked];
@@ -815,6 +816,7 @@ function renderList(){
   A.innerHTML = h;
   attachCodeGen();
   if(IS_SUPER) attachAdminMgmt();
+  attachPdfPick(reps);
   const locHead = document.getElementById("locHead");
   if(locHead) locHead.onclick = () => document.getElementById("locPanel").classList.toggle("open");
   A.querySelectorAll(".mchip[data-p]").forEach(c=>c.onclick=()=>{ ADMIN_PERIOD=c.dataset.p; renderList(); });
@@ -826,51 +828,125 @@ const AV = { yes:["Так","var(--yes)"], no:["Ні","var(--no)"], na:["Н/Д","
 const binDisp = (v) => { const x=AV[v]; return x?`<span class="d-dot" style="background:${x[1]}"></span>${x[0]}`:`<span style="color:var(--hint)">—</span>`; };
 
 // ---- PDF-звіт по локації (з фото) ----
-const PHOTO_LABELS = {receipt:"Чек",facade:"Фасад",hall:"Зал",dish:"Страва",toilet:"Туалет"};
+const PHOTO_LABELS = {receipt:"Чек",facade:"Фасад / вхід",hall:"Зал",dish:"Страва",toilet:"Туалет"};
 // Вміст звіту (inline-стилі — щоб коректно лягло в html2canvas). photosData: {slot: dataURL}
+// Кожен елемент з data-b — неподільний блок: сторінка не розріже його посередині.
 function reportInnerHTML(r, photosData){
   const ans=r.answers||{}, ss=r.section_scores||{}, p=Math.round(+r.score_pct||0);
-  const col = p>=80?"#1aa64b":p>=60?"#c98a10":"#d92c20";
-  const AVp={yes:["Так","#1aa64b"],no:["Ні","#d92c20"],na:["Н/Д","#888"]};
-  const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-  const bin=v=>{const x=AVp[v];return x?`<b style="color:${x[1]}">${x[0]}</b>`:"—";};
-  const tdL="padding:6px 8px;border-bottom:1px solid #eee;color:#888;width:150px;font-size:12px;text-transform:uppercase;vertical-align:top";
-  const tdV="padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top";
-  const tdA="padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top;text-align:right";
-  const h3="font-size:14px;margin:18px 0 6px;padding-bottom:4px;border-bottom:2px solid #eaeaea;overflow:hidden";
-  const mrow=(l,v)=>v?`<tr><td style="${tdL}">${esc(l)}</td><td style="${tdV}">${esc(v)}</td></tr>`:"";
-  let meta=`<table style="width:100%;border-collapse:collapse;margin-bottom:6px">`;
-  meta+=mrow("Дата", ans.date);
-  meta+=mrow("Час у закладі", (ans.entry_time||ans.exit_time)?((ans.entry_time||"—")+" – "+(ans.exit_time||"—")):"");
-  meta+=mrow("Співробітник", [ans.employee,ans.employee_desc].filter(Boolean).join(" · "));
-  meta+=mrow("Чек", [ans.receipt_num&&("№ "+ans.receipt_num), ans.amount&&(ans.amount+" грн")].filter(Boolean).join(" · "));
-  meta+=mrow("Замовлення", ans.order);
-  meta+=`</table>`;
-  let secs="";
-  SECTIONS.forEach(s=>{
-    const sc=ss[s.id]; const pct=sc&&sc.max?Math.round(sc.earned/sc.max*100):null;
-    const pc=pct==null?"":pct>=80?"#1aa64b":pct>=60?"#c98a10":"#d92c20";
-    secs+=`<h3 style="${h3}">${esc(s.title)}${pct!=null?`<span style="float:right;font-weight:700;color:${pc}">${sc.earned}/${sc.max} · ${pct}%</span>`:""}</h3><table style="width:100%;border-collapse:collapse;margin-bottom:6px">`;
-    s.q.forEach(q=>{
-      const v=ans[q.k]; const det=q.d&&ans[q.k+"_detail"]?`<div style="color:#999;font-style:italic;font-size:12px;margin-top:3px">${esc(ans[q.k+"_detail"])}</div>`:"";
-      if(!q.t||q.t==="bin") secs+=`<tr><td style="${tdV}">${esc(q.q)}</td><td style="${tdA}">${bin(v)}${det}</td></tr>`;
-      else if(q.t==="scale") secs+=`<tr><td style="${tdV}">${esc(q.q)}</td><td style="${tdA}">${v!=null?esc(v)+"/10":"—"}</td></tr>`;
-      else if(v) secs+=`<tr><td style="${tdV}">${esc(q.q)}</td><td style="${tdA}">${esc(v)}${det}</td></tr>`;
-    });
-    secs+=`</table>`;
-  });
-  let photos="";
-  const pd = photosData||{}, pk = Object.keys(pd);
-  if(pk.length){
-    photos=`<h3 style="${h3}">Фотодокази</h3><div style="display:flex;flex-wrap:wrap;gap:10px">`+
-      pk.map(slot=>`<div style="width:calc(50% - 5px)"><img src="${pd[slot]}" style="width:100%;border:1px solid #eee;border-radius:6px;display:block"><div style="font-size:11px;color:#888;text-align:center;margin-top:3px">${PHOTO_LABELS[slot]||slot}</div></div>`).join("")+
-      `</div>`;
+  const G="#1f9d55", Y="#c98a10", R="#d92c20", GR="#8a8f98";
+  const tone=v=>v>=80?G:v>=60?Y:R;
+  const tint=v=>v>=80?"#e9f7ef":v>=60?"#fdf4e3":"#fdecea";
+  const verdict=p>=80?"Добре":p>=60?"Є над чим попрацювати":"Потребує уваги";
+  const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const pill=v=>{
+    const m={yes:["✓ Так",G,"#e9f7ef"],no:["✗ Ні",R,"#fdecea"],na:["Н/Д",GR,"#f1f2f4"]}[v];
+    return m?`<span style="display:inline-block;min-width:62px;text-align:center;padding:3px 10px;border-radius:20px;font-weight:700;font-size:12.5px;color:${m[1]};background:${m[2]}">${m[0]}</span>`
+            :`<span style="color:${GR}">—</span>`;
+  };
+  const card="background:#fff;border:1px solid #e6e8eb;border-radius:12px";
+  const h2=(t,right="")=>`<div style="display:flex;justify-content:space-between;align-items:baseline;margin:22px 0 8px"><div style="font-size:16px;font-weight:800;color:#111">${t}</div>${right}</div>`;
+
+  // Шапка + підсумок
+  const time=(ans.entry_time||ans.exit_time)?`${ans.entry_time||"—"} – ${ans.exit_time||"—"}`:"";
+  let h=`<div data-b style="display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:3px solid #111">
+      <img src="logo.png?v=2" style="height:42px">
+      <div style="text-align:right"><div style="font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:${GR};font-weight:700">Звіт таємного покупця</div>
+      <div style="font-size:14px;font-weight:700;margin-top:2px">${esc(r.period?monthLabel(r.period):"")}</div></div></div>`;
+  h+=`<div data-b style="display:flex;gap:16px;margin-top:18px">
+      <div style="flex:1;${card};padding:18px 20px">
+        <div style="font-size:12px;color:${GR};text-transform:uppercase;letter-spacing:1px;font-weight:700">Локація</div>
+        <div style="font-size:26px;font-weight:800;line-height:1.2;margin:4px 0 10px">${esc(r.location_name||"—")}</div>
+        <div style="font-size:13.5px;color:#444;line-height:1.7">
+          ${ans.date?`📅 ${esc(ans.date)}`:""}${time?` &nbsp;·&nbsp; 🕒 ${esc(time)}`:""}
+          ${r.shopper_name?`<br>👤 Покупець: ${esc(r.shopper_name)}`:""}</div>
+      </div>
+      <div style="width:190px;border-radius:12px;background:${tint(p)};border:1px solid ${tone(p)}33;padding:18px;text-align:center;box-sizing:border-box">
+        <div style="font-size:12px;color:${GR};text-transform:uppercase;letter-spacing:1px;font-weight:700">Загальна оцінка</div>
+        <div style="font-size:54px;font-weight:900;color:${tone(p)};line-height:1.1;margin-top:4px">${p}%</div>
+        <div style="font-size:13px;color:#333;font-weight:600">${r.score_earned??"—"} з ${r.score_max??"—"} балів</div>
+        <div style="margin-top:8px;font-size:12.5px;font-weight:800;color:${tone(p)}">${verdict}</div>
+      </div></div>`;
+
+  // Результат по розділах (смужки)
+  const scored=SECTIONS.filter(s=>ss[s.id]&&ss[s.id].max);
+  if(scored.length){
+    h+=`<div data-b>${h2("Результат по розділах")}<div style="${card};padding:8px 18px">`+
+      scored.map((s,i)=>{const sc=ss[s.id], v=Math.round(sc.earned/sc.max*100);
+        return `<div style="display:flex;align-items:center;gap:12px;padding:9px 0;${i?"border-top:1px solid #f0f1f3":""}">
+          <div style="width:250px;font-size:13.5px;font-weight:600">${esc(s.title)}</div>
+          <div style="flex:1;height:10px;background:#eef0f2;border-radius:6px;overflow:hidden"><div style="width:${v}%;height:100%;background:${tone(v)};border-radius:6px"></div></div>
+          <div style="width:96px;text-align:right;font-size:13px"><b style="color:${tone(v)}">${v}%</b> <span style="color:${GR}">${sc.earned}/${sc.max}</span></div></div>`;}).join("")+
+      `</div></div>`;
   }
-  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a1a;font-size:14px;line-height:1.5">
-    <div style="font-size:34px;font-weight:800;color:${col};float:right;line-height:1">${p}%</div>
-    <h1 style="font-size:22px;margin:0 0 4px">${esc(r.location_name||"—")}</h1>
-    <div style="color:#666;font-size:13px;margin-bottom:14px">Звіт таємного покупця · ${esc(ans.date||"")}${r.period?" · "+esc(r.period):""} · ${r.score_earned}/${r.score_max} балів</div>
-    ${meta}${secs}${photos}</div>`;
+
+  // Що виправити — усі «Ні»
+  const fails=[];
+  SECTIONS.forEach(s=>s.q.forEach(q=>{ if((!q.t||q.t==="bin")&&ans[q.k]==="no") fails.push({s:s.title,q:q.q,d:ans[q.k+"_detail"],w:q.w}); }));
+  h+=`<div data-b>${h2(fails.length?`Що виправити · ${fails.length}`:"Що виправити")}`;
+  h+= fails.length
+    ? `<div style="border-radius:12px;background:#fdf2f1;border:1px solid #f5c6c2;padding:6px 18px">`+
+      fails.map((f,i)=>`<div style="display:flex;gap:10px;padding:9px 0;${i?"border-top:1px solid #f5d5d2":""}">
+        <div style="color:${R};font-weight:900;font-size:15px;line-height:1.35">✗</div>
+        <div style="flex:1"><div style="font-size:13.5px;font-weight:600;color:#222">${esc(f.q)}${f.w?` <span style="color:${R};font-weight:700;font-size:12px">−${f.w} б.</span>`:""}</div>
+        <div style="font-size:12px;color:${GR}">${esc(f.s)}</div>
+        ${f.d?`<div style="font-size:12.5px;color:#555;font-style:italic;margin-top:3px">«${esc(f.d)}»</div>`:""}</div></div>`).join("")+`</div>`
+    : `<div style="border-radius:12px;background:#e9f7ef;border:1px solid #bfe5cf;padding:14px 18px;font-weight:700;color:${G}">✓ Порушень не виявлено — усі пункти виконано</div>`;
+  h+=`</div>`;
+
+  // Деталі візиту
+  const det=[["Дата",ans.date],["Час у закладі",time],["Співробітник",[ans.employee,ans.employee_desc].filter(Boolean).join(" · ")],
+    ["Чек",[ans.receipt_num&&("№ "+ans.receipt_num),ans.amount&&(ans.amount+" грн")].filter(Boolean).join(" · ")],
+    ["Замовлення",ans.order],["Людей у черзі",ans.queue_count],["Очікування в черзі",ans.queue_time],["Загальний час",ans.total_time]].filter(x=>x[1]);
+  if(det.length){
+    h+=`<div data-b>${h2("Деталі візиту")}<div style="${card};padding:4px 18px;display:flex;flex-wrap:wrap">`+
+      det.map(([l,v])=>`<div style="width:50%;box-sizing:border-box;padding:9px 10px 9px 0">
+        <div style="font-size:11px;color:${GR};text-transform:uppercase;letter-spacing:.8px;font-weight:700">${l}</div>
+        <div style="font-size:13.5px;margin-top:2px">${esc(v)}</div></div>`).join("")+`</div></div>`;
+  }
+
+  // Розділи детально
+  h+=`<div data-b style="margin-top:28px;padding-top:14px;border-top:3px solid #111;font-size:19px;font-weight:800">Відповіді по розділах</div>`;
+  SECTIONS.forEach(s=>{
+    const sc=ss[s.id], v=sc&&sc.max?Math.round(sc.earned/sc.max*100):null;
+    const rows=[];
+    s.q.forEach(q=>{
+      const a=ans[q.k], d=ans[q.k+"_detail"];
+      const detail=d?`<div style="font-size:12.5px;color:#666;font-style:italic;margin-top:3px">«${esc(d)}»</div>`:"";
+      const row=(left,right)=>`<div data-b style="display:flex;gap:14px;align-items:flex-start;padding:9px 0;border-top:1px solid #f0f1f3">
+        <div style="flex:1;font-size:13.5px">${left}</div><div style="flex-shrink:0;text-align:right">${right}</div></div>`;
+      if(!q.t||q.t==="bin") rows.push(row(esc(q.q)+detail, pill(a)));
+      else if(q.t==="scale"){
+        if(a==null) return;
+        const n=+a, c=tone(n*10), start=q.z?0:1;
+        let seg=""; for(let i=start;i<=10;i++) seg+=`<span style="display:inline-block;width:9px;height:9px;margin-left:2px;border-radius:2px;background:${i<=n?c:"#e6e8eb"}"></span>`;
+        rows.push(row(esc(q.q), `<span style="vertical-align:middle">${seg}</span> <b style="color:${c};font-size:14px;margin-left:6px;vertical-align:middle">${n}/10</b>`));
+      }
+      else if(a){
+        if(q.t==="txtarea") rows.push(`<div data-b style="padding:9px 0;border-top:1px solid #f0f1f3">
+          <div style="font-size:11.5px;color:${GR};font-weight:700;text-transform:uppercase;letter-spacing:.6px">${esc(q.q)}</div>
+          <div style="margin-top:5px;background:#f6f7f9;border-left:3px solid #c9ccd2;border-radius:4px;padding:8px 12px;font-size:13.5px;white-space:pre-wrap">${esc(a)}</div></div>`);
+        else rows.push(row(`<span style="color:#555">${esc(q.q)}</span>`, `<b style="font-size:13.5px">${esc(a)}</b>`+detail));
+      }
+    });
+    if(!rows.length) return;
+    const head=`<div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 4px;padding:9px 14px;background:#f3f4f6;border-radius:9px">
+      <div style="font-size:15px;font-weight:800">${esc(s.title)}</div>
+      ${v!=null?`<div style="font-size:13px"><b style="color:${tone(v)}">${v}%</b> <span style="color:${GR}">· ${sc.earned}/${sc.max} б.</span></div>`:""}</div>`;
+    // заголовок не відривається від першого рядка
+    h+=`<div data-b>${head}${rows[0].replace("data-b ","")}</div>`+rows.slice(1).join("");
+  });
+
+  // Фото — по 2 в ряд
+  const pd=photosData||{}, pk=Object.keys(pd);
+  if(pk.length){
+    h+=`<div data-b>${h2("Фотодокази")}</div>`;
+    for(let i=0;i<pk.length;i+=2){
+      h+=`<div data-b style="display:flex;gap:14px;margin-bottom:14px">`+pk.slice(i,i+2).map(slot=>`<div style="width:calc(50% - 7px)">
+        <div style="height:300px;border-radius:10px;border:1px solid #e6e8eb;background:#f3f4f6 url('${pd[slot]}') center/contain no-repeat"></div>
+        <div style="font-size:12.5px;color:#444;text-align:center;margin-top:5px;font-weight:600">${PHOTO_LABELS[slot]||slot}</div></div>`).join("")+`</div>`;
+    }
+  }
+  return `<div style="font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#1a1a1a;line-height:1.45">${h}</div>`;
 }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=()=>rej(new Error("Не вдалося завантажити бібліотеку")); document.head.appendChild(s); }); }
 async function ensurePdfLibs(){
@@ -882,48 +958,103 @@ async function urlToDataURL(url){
   const blob = await res.blob();
   return await new Promise((r,j)=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.onerror=j; fr.readAsDataURL(blob); });
 }
+// Будує PDF (jsPDF) зі звіту. Сторінки ріжуться лише між блоками data-b.
+async function buildReportPDF(r){
+  await ensurePdfLibs();
+  const photosData = {};
+  for(const [slot,url] of Object.entries(r.photos||{})){
+    try{ photosData[slot] = await urlToDataURL(url); }catch(_){ /* пропускаємо недоступне фото */ }
+  }
+  const W = 760;
+  const holder = document.createElement("div");
+  holder.style.cssText = `position:fixed;left:-9999px;top:0;width:${W}px;background:#fff;box-sizing:border-box`;
+  holder.innerHTML = reportInnerHTML(r, photosData);
+  document.body.appendChild(holder);
+  try{
+    await Promise.all([...holder.querySelectorAll("img")].map(img=> img.complete?Promise.resolve():new Promise(res=>{ img.onload=img.onerror=res; })));
+    const top0 = holder.getBoundingClientRect().top;
+    const blocks = [...holder.querySelectorAll("[data-b]")].map(b=>{ const q=b.getBoundingClientRect(); return [q.top-top0, q.bottom-top0]; });
+    const S = 2;
+    const canvas = await html2canvas(holder, { scale:S, useCORS:true, backgroundColor:"#fff" });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF("p","mm","a4");
+    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+    const M = 12, FOOT = 10;                       // поля й місце під нумерацію, мм
+    const k = (pw-2*M)/W;                          // мм на 1 css-піксель
+    const pageH = (ph-M-FOOT)/k;                   // висота сторінки в css-пікселях
+    const H = canvas.height/S;
+    const cuts = [0];
+    for(let y=0; y<H-1; ){
+      let end = Math.min(y+pageH, H);
+      if(end < H){
+        const cut = blocks.find(([t,b])=> t>y+1 && t<end && b>end);   // блок, що перетинає межу
+        if(cut) end = cut[0];
+      }
+      cuts.push(end); y = end;
+    }
+    const n = cuts.length-1;
+    for(let i=0;i<n;i++){
+      const y0=cuts[i]*S, h=Math.ceil((cuts[i+1]-cuts[i])*S);
+      const slice = document.createElement("canvas");
+      slice.width = canvas.width; slice.height = h;
+      slice.getContext("2d").drawImage(canvas, 0, y0, canvas.width, h, 0, 0, canvas.width, h);
+      if(i>0) pdf.addPage();
+      pdf.addImage(slice.toDataURL("image/jpeg",0.85), "JPEG", M, M, pw-2*M, h/S*k);
+      pdf.setFontSize(8); pdf.setTextColor(150);
+      pdf.text(`${i+1} / ${n}`, pw-M, ph-6, {align:"right"});
+    }
+    return pdf;
+  } finally { document.body.removeChild(holder); }
+}
+function pdfFileName(r){
+  const safe=(r.location_name||"локація").replace(/[\\/:*?"<>|]+/g,"_").replace(/\s+/g,"_");
+  return `Звіт_${safe}_${r.period||""}.pdf`;
+}
+// У Telegram файл не зберегти напряму з апки — бот надсилає PDF у чат. У браузері — звичайне завантаження.
 async function downloadPDF(r, btn){
   const old = btn?.textContent;
   try{
     if(btn){ btn.textContent="Готую PDF…"; btn.disabled=true; }
-    await ensurePdfLibs();
-    // Витягуємо фото у dataURL (обходить CORS/taint у html2canvas)
-    const photosData = {};
-    for(const [slot,url] of Object.entries(r.photos||{})){
-      try{ photosData[slot] = await urlToDataURL(url); }catch(_){ /* пропускаємо недоступне фото */ }
-    }
-    const holder = document.createElement("div");
-    holder.style.cssText = "position:fixed;left:-9999px;top:0;width:760px;padding:28px;background:#fff;box-sizing:border-box";
-    holder.innerHTML = reportInnerHTML(r, photosData);
-    document.body.appendChild(holder);
-    await Promise.all([...holder.querySelectorAll("img")].map(img=> img.complete?Promise.resolve():new Promise(res=>{ img.onload=img.onerror=res; })));
-    const canvas = await html2canvas(holder, { scale:2, useCORS:true, backgroundColor:"#fff" });
-    document.body.removeChild(holder);
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF("p","mm","a4");
-    const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
-    const pageHpx = canvas.width * ph / pw;   // висота однієї A4-сторінки в пікселях канви
-    let y = 0, page = 0;
-    while(y < canvas.height){
-      const sliceH = Math.min(pageHpx, canvas.height - y);
-      const slice = document.createElement("canvas");
-      slice.width = canvas.width; slice.height = sliceH;
-      slice.getContext("2d").drawImage(canvas, 0, y, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
-      if(page>0) pdf.addPage();
-      pdf.addImage(slice.toDataURL("image/jpeg",0.9), "JPEG", 0, 0, pw, sliceH*pw/canvas.width);
-      y += pageHpx; page++;
-    }
-    const safe=(r.location_name||"локація").replace(/[\\/:*?"<>|]+/g,"_").replace(/\s+/g,"_");
-    pdf.save(`Звіт_${safe}_${r.period||""}.pdf`);
+    const pdf = await buildReportPDF(r);
+    const name = pdfFileName(r);
+    if(tg?.initData){
+      if(btn) btn.textContent="Надсилаю в чат…";
+      const res = await api("send_pdf", { pdf: pdf.output("datauristring"), filename: name,
+        caption: `${r.location_name||""} · ${r.period?monthLabel(r.period):""} · ${Math.round(+r.score_pct||0)}%` });
+      if(res.ok) alertMsg("PDF надіслано вам у чат з ботом 📄");
+      else alertMsg(res.error==="unknown_action" ? "Сервер ще не оновлено — потрібно задеплоїти функцію api." : "Не вдалося надіслати PDF: "+(res.error||"?"));
+    } else pdf.save(name);
   }catch(e){ alertMsg("Не вдалося зробити PDF: "+(e.message||e)); }
   finally{ if(btn){ btn.textContent=old; btn.disabled=false; } }
+}
+const PDF_BTN_LABEL = (window.Telegram?.WebApp?.initData) ? "📄 Отримати PDF у чат" : "⬇ Завантажити PDF";
+function pdfPickBlock(reps){
+  if(!reps.length) return "";
+  return `<div class="cap">PDF-звіт по локації</div>
+    <div class="group" style="padding:14px 16px">
+      <div id="pdfLocHolder" style="margin-bottom:9px"></div>
+      <button id="pdfPickBtn" style="width:100%;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">${PDF_BTN_LABEL}</button>
+      <div style="font-size:12px;color:var(--hint);margin-top:8px">Звіт за обраний місяць з оцінками, списком «що виправити» і фото.</div>
+    </div>`;
+}
+function attachPdfPick(reps){
+  const holder=document.getElementById("pdfLocHolder"); if(!holder) return;
+  const names=[...new Set(reps.map(r=>r.location_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+  const cs=mkSelect(names,{placeholder:"— оберіть локацію —"});
+  holder.appendChild(cs);
+  const btn=document.getElementById("pdfPickBtn");
+  btn.onclick=()=>{
+    const r=reps.filter(x=>x.location_name===cs._getVal()).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0];  // найсвіжіший
+    if(!r){ alertMsg("Оберіть локацію."); return; }
+    downloadPDF(r, btn);
+  };
 }
 function openDetail(r){
   const ans = r.answers||{}, ss = r.section_scores||{}, p = Math.round(+r.score_pct||0);
   let h = `<div class="d-top"><div class="d-back" id="dback">‹ Усі звіти</div>
     <div class="d-scorerow"><div class="d-loc">${r.location_name||"—"}</div><div class="d-big" style="color:${scoreCol(p)}">${p}%</div></div>
     <div class="rep-meta">${ans.date||""}${r.period?" · "+r.period:""} · ${r.score_earned}/${r.score_max} балів</div></div>`;
-  h += `<button id="dlBtn" style="display:block;width:calc(100% - 32px);margin:0 16px 6px;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">⬇ Завантажити PDF (з фото)</button>`;
+  h += `<button id="dlBtn" style="display:block;width:calc(100% - 32px);margin:0 16px 6px;background:var(--btn);color:var(--btn-text);border:none;border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">${PDF_BTN_LABEL}</button>`;
   const line=(lbl,val)=> val?`<div class="d-txt"><div class="lbl">${lbl}</div>${val}</div>`:"";
   h += `<div class="d-sec">`;
   h += line("Час у закладі", (ans.entry_time||ans.exit_time)?((ans.entry_time||"—")+" – "+(ans.exit_time||"—")):"");
