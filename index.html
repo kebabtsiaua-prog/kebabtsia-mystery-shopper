@@ -673,9 +673,13 @@ async function adminApp(){
   if(tg?.MainButton) tg.MainButton.hide();
   A.innerHTML = `<div class="empty">Завантаження звітів…</div>`;
   try{
-    const res = await api("admin_reports", null);
+    // звіти й список адмінів вантажимо паралельно, а не по черзі
+    const [res, adm] = await Promise.all([
+      api("admin_reports", null),
+      IS_SUPER ? api("admin_list", null).catch(()=>null) : null,
+    ]);
     ADMIN_REPORTS = res.reports || [];
-    if(IS_SUPER){ try{ ADMIN_ADMINS = (await api("admin_list", null)).admins || []; }catch(e){} }
+    if(adm) ADMIN_ADMINS = adm.admins || [];
     renderList();
   }catch(e){ A.innerHTML = `<div class="empty">Помилка завантаження звітів.</div>`; }
 }

@@ -52,15 +52,45 @@ Deno.serve(async (req) => {
     const tgUser = await verify(initData);
     if (!tgUser) return json({ authorized: false, reason: "bad_init" }, 401);
     const name = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || tgUser.username || String(tgUser.id);
-    const { data: adminRow } = await db.from("shoppers").select("is_admin").eq("telegram_id", tgUser.id).eq("active", true).maybeSingle();
+    const { data: adminRow } = await db.from("shoppers").select("is_admin, is_super").eq("telegram_id", tgUser.id).eq("active", true).maybeSingle();
     const isAdmin = adminRow?.is_admin === true;
+    const isSuper = adminRow?.is_super === true;
 
     if (action === "me") {
       if (isAdmin) {
         const { data: locations } = await db.from("locations").select("id, name").eq("active", true).order("name");
-        return json({ authorized: true, is_admin: true, locations: locations ?? [] });
+        return json({ authorized: true, is_admin: true, is_super: isSuper, locations: locations ?? [] });
       }
       return json({ authorized: true, is_admin: false });
+    }
+
+    if (action === "admin_list") {
+      if (!isSuper) return json({ error: "forbidden" }, 403);
+      const { data } = await db.from("shoppers").select("telegram_id, full_name, is_super")
+        .eq("is_admin", true).eq("active", true).order("created_at");
+      return json({ admins: data ?? [] });
+    }
+
+    if (action === "add_admin") {
+      if (!isSuper) return json({ error: "forbidden" }, 403);
+      const id = Number(payload?.telegram_id);
+      const nm = String(payload?.name || "").trim();
+      if (!id || !Number.isFinite(id)) return json({ ok: false, error: "bad_id" });
+      const { error } = await db.from("shoppers").upsert(
+        { telegram_id: id, full_name: nm || null, is_admin: true, active: true },
+        { onConflict: "telegram_id" });
+      if (error) return json({ ok: false, error: error.message });
+      return json({ ok: true });
+    }
+
+    if (action === "remove_admin") {
+      if (!isSuper) return json({ error: "forbidden" }, 403);
+      const id = Number(payload?.telegram_id);
+      if (!id) return json({ ok: false, error: "bad_id" });
+      if (id === tgUser.id) return json({ ok: false, error: "self" });
+      const { error } = await db.from("shoppers").update({ is_admin: false }).eq("telegram_id", id);
+      if (error) return json({ ok: false, error: error.message });
+      return json({ ok: true });
     }
 
     if (action === "redeem_code") {
@@ -122,18 +152,36 @@ Deno.serve(async (req) => {
       const { data: reports } = await db.from("reports")
         .select("id, location_name, period, score_pct, score_earned, score_max, section_scores, answers, photos, shopper_name, created_at")
         .order("created_at", { ascending: false });
-      // Підписані URL для перегляду фото (сховище приватне)
+      // Підписані URL для перегляду фото (сховище приватне) — одним запитом на всі фото, а не по одному
+      const paths = (reports ?? []).flatMap((r) => r.photos && typeof r.photos === "object" ? Object.values(r.photos) as string[] : []);
+      const urlByPath: Record<string, string> = {};
+      if (paths.length) {
+        const { data: signedList } = await db.storage.from("photos").createSignedUrls(paths, 3600);
+        for (const s of signedList ?? []) if (s.path && s.signedUrl) urlByPath[s.path] = s.signedUrl;
+      }
       for (const r of (reports ?? [])) {
         if (r.photos && typeof r.photos === "object") {
           const signed: Record<string, string> = {};
-          for (const [slot, path] of Object.entries(r.photos)) {
-            const { data: s } = await db.storage.from("photos").createSignedUrl(path as string, 3600);
-            if (s?.signedUrl) signed[slot] = s.signedUrl;
-          }
+          for (const [slot, path] of Object.entries(r.photos)) if (urlByPath[path as string]) signed[slot] = urlByPath[path as string];
           r.photos = signed;
         }
       }
       return json({ reports: reports ?? [] });
+    }
+
+    // PDF-звіт → бот надсилає файл адміну в чат (з Mini App файл напряму не зберегти)
+    if (action === "send_pdf") {
+      if (!isAdmin) return json({ error: "forbidden" }, 403);
+      const dataUrl = String(payload?.pdf || "");
+      if (!dataUrl.startsWith("data:application/pdf")) return json({ ok: false, error: "no_pdf" });
+      const bytes = Uint8Array.from(atob(dataUrl.split(",")[1] || ""), (c) => c.charCodeAt(0));
+      const fd = new FormData();
+      fd.append("chat_id", String(tgUser.id));
+      fd.append("caption", String(payload?.caption || "").slice(0, 1000));
+      fd.append("document", new Blob([bytes], { type: "application/pdf" }), String(payload?.filename || "report.pdf"));
+      const tr = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, { method: "POST", body: fd });
+      const tj = await tr.json().catch(() => ({}));
+      return tj.ok ? json({ ok: true }) : json({ ok: false, error: tj.description || `telegram ${tr.status}` });
     }
 
     if (action === "generate_code") {
