@@ -227,6 +227,8 @@
   .chips{display:flex; flex-wrap:wrap; gap:6px;}
   .chip-loc{font-size:12.5px; padding:5px 10px; border-radius:999px; background:var(--field); line-height:1.25;}
   .chip-done{background:var(--Gt); color:var(--G);}
+  .chip-loc.todo{cursor:pointer;}
+  .chip-loc.todo:active{background:var(--btn); color:var(--btn-text);}
   .empty{text-align:center; padding:40px 24px; color:var(--hint);}
   /* згортувані блоки */
   .acc{border-top:1px solid var(--sep);}
@@ -877,6 +879,15 @@ function renderList(){
   let h = `<div class="adm-h"><small>Кабінет адміністратора</small></div>`;
   h += codeGenBlock();
 
+  // Що ще не перевірено в поточному місяці — одразу під кодом (тап по локації підставляє її в код)
+  const nd = new Date(), nowP = `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,"0")}`;
+  const doneNow = new Set(reportsFor(nowP).map(r=>r.location_name));
+  const todo = ADMIN_LOCATIONS.filter(l=>!doneNow.has(l.name));
+  h += `<div class="h2"><b>Ще не перевірено · ${MONTHS_UK[+nowP.split("-")[1]]}</b><span>${todo.length?`${todo.length} з ${total}`:""}</span></div>`;
+  h += todo.length ? `<div class="card pad"><div class="chips">${todo.map(l=>`<span class="chip-loc todo" data-n="${escH(l.name)}">${escH(l.name)}</span>`).join("")}</div>
+      <div style="font-size:12px;color:var(--hint);margin-top:9px">Тапніть локацію — вона підставиться в код вище.</div></div>`
+    : `<div class="okbox">✓ Усі локації перевірено цього місяця</div>`;
+
   h += `<div class="h2"><b>Місяць перевірок</b></div><div class="months">`;
   if(!periods.length) h += `<span class="mchip on">Немає даних</span>`;
   periods.forEach(p=> h += `<span class="mchip ${p===ADMIN_PERIOD?'on':''}" data-p="${p}">${monthLabel(p)}</span>`);
@@ -936,10 +947,6 @@ function renderList(){
     const tp = periods.slice(0,6).reverse().map(p=>({p, v:avgOf(reportsFor(p).map(pctOf))}));
     if(tp.length>=2) h += `<div class="h2"><b>Динаміка</b><span>середня оцінка по місяцях</span></div><div class="card trend" id="trend">${trendSVG(tp, ADMIN_PERIOD)}</div>`;
 
-    // Що ще не перевірено
-    h += `<div class="h2"><b>${remaining.length?"Ще не перевірено":"Покриття"}</b><span>${remaining.length?`${remaining.length} з ${total}`:""}</span></div>`;
-    h += remaining.length ? `<div class="card pad"><div class="chips">${remaining.map(l=>`<span class="chip-loc">${escH(l.name)}</span>`).join("")}</div></div>`
-      : `<div class="okbox">✓ Усі локації перевірено цього місяця</div>`;
   } else {
     h += `<div class="empty">Ще немає жодного звіту.</div>`;
   }
@@ -952,6 +959,11 @@ function renderList(){
   attachCodeGen();
   if(IS_SUPER) attachAdminMgmt();
   attachPdfPick(reps);
+  A.querySelectorAll(".chip-loc.todo").forEach(c=>c.onclick=()=>{
+    document.querySelector("#cgLocHolder .csel")._setVal(c.dataset.n); haptic();
+    document.getElementById("cgResult").innerHTML="";
+    document.querySelector(".scroll").scrollTop=0; window.scrollTo({top:0,behavior:"smooth"});
+  });
   A.querySelectorAll(".acc-h").forEach(x=>x.onclick=()=>x.parentElement.classList.toggle("open"));
   A.querySelectorAll(".mchip[data-p], #trend g[data-p]").forEach(c=>c.onclick=()=>{ ADMIN_PERIOD=c.dataset.p; renderList(); });
   A.querySelectorAll(".bar-row").forEach(c=>c.onclick=()=>openDetail(ADMIN_REPORTS[+c.dataset.i]));
