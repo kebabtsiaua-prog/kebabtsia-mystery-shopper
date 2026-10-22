@@ -282,11 +282,11 @@ const SECTIONS = [
   {id:"reception", title:"Прийом замовлення", q:[
     {k:"greeted", w:3, q:"Співробітник привітав вас"},
     {k:"smiled", w:3, q:"Співробітник посміхнувся вам"},
-    {k:"helped_choice", q:"Допоміг з вибором, пропонував варіанти", d:1},
+    {k:"helped_choice", w:2, q:"Допоміг з вибором, пропонував варіанти", d:1},
     {k:"offered_extra", w:5, q:"Запропонував додаткові страви до замовлення"},
-    {k:"desc_kebab", q:"Дав опис складу кебабу", d:1},
+    {k:"desc_kebab", w:2, q:"Дав опис складу кебабу", d:1},
     {k:"asked_app", w:2, q:"Запитав, чи є у вас система лояльності / додаток"},
-    {k:"offered_app_reg", q:"Запропонував зареєструватися в додатку"},
+    {k:"offered_app_reg", w:3, q:"Запропонував зареєструватися в додатку"},
     {k:"comment_order", t:"txtarea", q:"Коментар до розділу «Прийом замовлення»"},
   ]},
   {id:"payout", title:"Розрахунок і видача", q:[
@@ -520,6 +520,7 @@ function requiredKeys(){
   const keys=["location"];
   META.forEach(m=>{ if(m.req) keys.push(m.k); });
   SECTIONS.forEach(s=> s.q.forEach(q=>{ if(!q.t || q.t==="bin" || q.t==="scale" || q.t==="sel" || q.req) keys.push(q.k); }));
+  if(HIDE_TOILET_PHOTO) keys.splice(keys.indexOf("toilet_clean"),1);
   PHOTOS.forEach(p=>{ if(p.k==="photo_toilet" && HIDE_TOILET_PHOTO) return; keys.push(p.k); });
   return keys;
 }
@@ -653,6 +654,10 @@ function applyAssignment(a){
   const tRow = document.querySelector('.photo[data-q="photo_toilet"]');
   if(tRow) tRow.style.display = HIDE_TOILET_PHOTO ? "none" : "";
   if(HIDE_TOILET_PHOTO) data.photo_toilet = null;
+  // і питання про туалет теж не рахуємо в бал (порожня відповідь випадає зі знаменника)
+  const tq = document.querySelector('.row[data-q="toilet_clean"]');
+  if(tq) tq.style.display = HIDE_TOILET_PHOTO ? "none" : "";
+  if(HIDE_TOILET_PHOTO) data.toilet_clean = null;
   updateProg();
 }
 // ================= АДМІН-КАБІНЕТ =================
