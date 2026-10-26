@@ -137,7 +137,29 @@ Deno.serve(async (req) => {
       if (!code) return json({ ok: false, error: "empty" });
       const { data: asg } = await db.from("assignments")
         .select("id, location_id, period, status, locations(name)").eq("code", code).maybeSingle();
-      if (!asg) return json({ ok: false, error: "not_found" });
+      if (!asg) {
+        // Можливо, це код запрошення адміна, введений у полі замість «Старт» у боті
+        const since = new Date(Date.now() - INVITE_DAYS * 864e5).toISOString();
+        const { data: inv } = await db.from("admin_invites")
+          .update({ used_by: tgUser.id, used_at: new Date().toISOString() })
+          .eq("code", code).is("used_at", null).gt("created_at", since)
+          .select("full_name, is_super").maybeSingle();
+        if (!inv) {
+          const { data: old } = await db.from("admin_invites").select("code").eq("code", code).maybeSingle();
+          return json({ ok: false, error: old ? "used" : "not_found" });
+        }
+        const row: Record<string, unknown> = {
+          telegram_id: tgUser.id, full_name: inv.full_name, username: tgUser.username ?? null,
+          is_admin: true, active: true,
+        };
+        if (inv.is_super) row.is_super = true;
+        const { error } = await db.from("shoppers").upsert(row, { onConflict: "telegram_id" });
+        if (error) {
+          await db.from("admin_invites").update({ used_by: null, used_at: null }).eq("code", code);
+          return json({ ok: false, error: error.message });
+        }
+        return json({ ok: true, admin: true });
+      }
       if (asg.status !== "open") return json({ ok: false, error: "used" });
       return json({ ok: true, assignment: { id: asg.id, location_id: asg.location_id, period: asg.period, location_name: asg.locations?.name } });
     }

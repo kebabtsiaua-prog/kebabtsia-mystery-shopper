@@ -675,7 +675,11 @@ function showCodeEntry(err){
     btn.textContent = "Перевірка…"; btn.disabled = true;
     try{
       const res = await api("redeem_code", { code });
-      if(res.ok){
+      if(res.ok && res.admin){
+        const me = await api("me", null);
+        if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; IS_SUPER = me.is_super===true; adminApp(); return; }
+        showCodeEntry("Доступ відкрито. Закрийте й відкрийте застосунок ще раз.");
+      } else if(res.ok){
         applyAssignment(res.assignment); showForm();
         if(tg?.MainButton){ tg.MainButton.setText("Надіслати звіт"); tg.MainButton.show(); }
         updateProg();
