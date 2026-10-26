@@ -716,7 +716,7 @@ const avgOf = a => a.length ? Math.round(a.reduce((s,v)=>s+v,0)/a.length) : null
 const deltaHTML = d => d==null ? "" : d>0 ? `<span class="delta" style="color:var(--G)">▲ +${d}%</span>`
   : d<0 ? `<span class="delta" style="color:var(--R)">▼ −${-d}%</span>` : `<span class="delta" style="color:var(--hint)">= без змін</span>`;
 const A = document.getElementById("admin");
-let ADMIN_REPORTS = [], ADMIN_LOCATIONS = [], ADMIN_PERIOD = null, IS_SUPER = false, ADMIN_ADMINS = [];
+let ADMIN_REPORTS = [], ADMIN_LOCATIONS = [], ADMIN_PERIOD = null, IS_SUPER = false, ADMIN_ADMINS = [], ADMIN_INVITES = [];
 const SESSION_ID = (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || null;
 
 async function adminApp(){
@@ -731,7 +731,7 @@ async function adminApp(){
       IS_SUPER ? api("admin_list", null).catch(()=>null) : null,
     ]);
     ADMIN_REPORTS = res.reports || [];
-    if(adm) ADMIN_ADMINS = adm.admins || [];
+    if(adm){ ADMIN_ADMINS = adm.admins || []; ADMIN_INVITES = adm.invites || []; }
     renderList();
   }catch(e){ A.innerHTML = `<div class="empty">Помилка завантаження звітів.</div>`; }
 }
@@ -795,13 +795,82 @@ function reportsFor(p){ return ADMIN_REPORTS.filter(r=>r.period===p).sort((a,b)=
 function adminMgmtBlock(){
   return `<div class="acc"><div class="acc-h"><div class="ti">👥</div><b>Адміністратори<small>хто має доступ до кабінету</small></b><span class="acc-chev">▾</span></div>
     <div class="acc-b">
-      <div style="font-size:12.5px;color:var(--hint);margin-bottom:9px">Людина відкриває <b>@userinfobot</b> → отримує свій ID → впиши його сюди.</div>
-      <input id="aaId" type="number" inputmode="numeric" placeholder="Telegram ID" style="margin-bottom:8px">
-      <input id="aaName" type="text" placeholder="Ім'я (необовʼязково)" style="margin-bottom:8px">
-      <button id="aaBtn" class="abtn">Додати адміна</button>
-      <div id="aaResult" style="margin-top:8px"></div>
-      <div id="aaList" style="margin-top:12px"></div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px">Запросити людину</div>
+      <div style="font-size:12.5px;color:var(--hint);margin-bottom:9px">Бот дасть одноразове посилання. Людина відкриє його й натисне «Старт», і доступ відкриється. Telegram ID знати не треба.</div>
+      <input id="aiName" type="text" placeholder="Ім'я, напр. Юра CEO" style="margin-bottom:8px">
+      <div id="aiRoleHolder" style="margin-bottom:8px"></div>
+      <div style="font-size:12px;color:var(--hint);margin:-2px 0 9px">Адмін бачить звіти. Головний адмін ще й додає та прибирає адмінів.</div>
+      <button id="aiBtn" class="abtn">Створити запрошення</button>
+      <div id="aiResult"></div>
+      <div id="aiList" style="margin-top:10px"></div>
+      <div style="font-size:14px;font-weight:700;margin:16px 0 2px">Мають доступ</div>
+      <div id="aaList"></div>
+      <details style="margin-top:12px"><summary style="font-size:13px;color:var(--link);cursor:pointer">Додати за Telegram ID</summary>
+        <div style="font-size:12.5px;color:var(--hint);margin:9px 0">Людина відкриває <b>@userinfobot</b> → отримує свій ID → впиши його сюди.</div>
+        <input id="aaId" type="number" inputmode="numeric" placeholder="Telegram ID" style="margin-bottom:8px">
+        <input id="aaName" type="text" placeholder="Ім'я (необовʼязково)" style="margin-bottom:8px">
+        <button id="aaBtn" class="abtn ghost">Додати адміна</button>
+        <div id="aaResult" style="margin-top:8px"></div>
+      </details>
     </div></div>`;
+}
+const ROLE_ADMIN = "Адмін", ROLE_SUPER = "Головний адмін";
+
+const inviteText = r => `Код для ${r.name}: ${r.code}\nНадішліть людині це посилання. Вона відкриє бота, натисне «Старт», і доступ відкриється:\n${r.link}`;
+async function reloadAdmins(){
+  const d = await api("admin_list",null);
+  ADMIN_ADMINS = d.admins||[]; ADMIN_INVITES = d.invites||[];
+  renderAdminList(); renderInviteList();
+}
+function renderInviteList(){
+  const box=document.getElementById("aiList"); if(!box) return;
+  box.innerHTML = ADMIN_INVITES.length ? `<div style="font-size:12px;color:var(--hint);margin-bottom:2px">Чекають, поки людина натисне «Старт»:</div>` +
+    ADMIN_INVITES.map(i=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--sep)">
+      <div><div style="font-size:13.5px;font-weight:600">${escH(i.full_name)}${i.is_super?` <span style="font-size:11px;color:var(--btn);font-weight:700">головний</span>`:""}</div>
+        <div style="font-size:12px;color:var(--hint);letter-spacing:1px">${escH(i.code)}</div></div>
+      <span class="ai-rm" data-c="${escH(i.code)}" style="font-size:13px;color:var(--no);cursor:pointer;font-weight:600">скасувати</span></div>`).join("") : "";
+  box.querySelectorAll(".ai-rm").forEach(x=>x.onclick=async()=>{
+    const res=await api("cancel_invite",{code:x.dataset.c});
+    if(res.ok) reloadAdmins(); else alertMsg("Не вдалося скасувати: "+(res.error||"?"));
+  });
+}
+function attachInvite(){
+  const holder=document.getElementById("aiRoleHolder"); if(!holder) return;
+  const role = mkSelect([ROLE_ADMIN, ROLE_SUPER], { value: ROLE_ADMIN });
+  holder.appendChild(role);
+  const btn=document.getElementById("aiBtn");
+  btn.onclick=async()=>{
+    const nameEl=document.getElementById("aiName"), rd=document.getElementById("aiResult");
+    const name=nameEl.value.trim();
+    if(!name){ rd.innerHTML=`<div class="err">Впишіть ім'я людини.</div>`; return; }
+    btn.textContent="Створюю…"; btn.disabled=true;
+    try{
+      const res=await api("create_invite",{name, is_super: role._getVal()===ROLE_SUPER});
+      if(res.ok && res.link){
+        const text=inviteText(res);
+        rd.innerHTML=`<div class="code-box">
+          <div class="lbl">${escH(res.name)} · ${res.is_super?"головний адмін":"адмін"}</div>
+          <div class="cd">${escH(res.code)}</div>
+          <div style="font-size:13px;text-align:left;white-space:pre-wrap;word-break:break-word;margin-bottom:12px;user-select:all">${escH(text)}</div>
+          <div class="code-btns"><button class="abtn" id="aiCopy">Скопіювати</button>${tg?`<button class="abtn ghost" id="aiShare">Надіслати</button>`:""}</div>
+          <div style="font-size:12px;color:var(--hint);margin-top:9px">Одноразове, діє 7 днів.</div></div>`;
+        nameEl.value="";
+        const cp=document.getElementById("aiCopy");
+        cp.onclick=async()=>{
+          if(await copyText(text)){ try{ tg?.HapticFeedback?.notificationOccurred("success"); }catch(e){}
+            cp.textContent="Скопійовано ✓"; setTimeout(()=>{ cp.textContent="Скопіювати"; },2000); }
+          else alertMsg("Не вдалося скопіювати. Натисніть і утримуйте текст, щоб скопіювати вручну.");
+        };
+        const sh=document.getElementById("aiShare");
+        if(sh) sh.onclick=()=>tg.openTelegramLink("https://t.me/share/url?url="+encodeURIComponent(res.link)
+          +"&text="+encodeURIComponent(`Код для ${res.name}: ${res.code}\nВідкрийте посилання й натисніть «Старт», і доступ відкриється.`));
+        reloadAdmins();
+      }
+      else rd.innerHTML=`<div class="err">Помилка: ${escH(res.error||"бот не відповів")}</div>`;
+    }catch(e){ rd.innerHTML=`<div class="err">Помилка зʼєднання.</div>`; }
+    btn.textContent="Створити запрошення"; btn.disabled=false;
+  };
+  renderInviteList();
 }
 function renderAdminList(){
   const box=document.getElementById("aaList"); if(!box) return;
@@ -816,7 +885,7 @@ function renderAdminList(){
   }).join("") || `<div style="font-size:13px;color:var(--hint)">Поки лише ви.</div>`;
   box.querySelectorAll(".aa-rm").forEach(x=>x.onclick=async()=>{
     const res=await api("remove_admin",{telegram_id:+x.dataset.id});
-    if(res.ok){ ADMIN_ADMINS=(await api("admin_list",null)).admins||[]; renderAdminList(); }
+    if(res.ok) reloadAdmins();
     else alertMsg("Не вдалося прибрати: "+(res.error||"?"));
   });
 }
@@ -832,10 +901,10 @@ function attachAdminMgmt(){
     btn.textContent="Додати адміна"; btn.disabled=false;
     if(res.ok){ rd.innerHTML=`<span style="color:var(--yes);font-size:13px">Додано ✓</span>`;
       document.getElementById("aaId").value=""; document.getElementById("aaName").value="";
-      ADMIN_ADMINS=(await api("admin_list",null)).admins||[]; renderAdminList(); }
+      reloadAdmins(); }
     else rd.innerHTML=`<span style="color:var(--no);font-size:13px">Помилка: ${res.error||"?"}</span>`;
   };
-  renderAdminList();
+  renderAdminList(); attachInvite();
 }
 const MONTHS_GEN = ["","січня","лютого","березня","квітня","травня","червня","липня","серпня","вересня","жовтня","листопада","грудня"];
 const MONTHS_SHORT = ["","січ","лют","бер","квіт","трав","черв","лип","серп","вер","жовт","лист","груд"];

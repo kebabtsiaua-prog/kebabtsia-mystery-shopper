@@ -1,6 +1,7 @@
 // ============================================================
 //  Кебабця · Таємний покупець — Edge Function "api"
 //  Доступ: адмін — за Telegram (таблиця shoppers, is_admin);
+//          новий адмін — за запрошенням (admin_invites.code, бот /start CODE);
 //          покупець — за одноразовим кодом (assignments.code).
 //  Секрет BOT_TOKEN — у Supabase → Edge Functions → Secrets.
 //  service_role має grant-и на public (див. db/grants.sql).
@@ -44,6 +45,15 @@ async function verify(initData) {
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function genCode(n = 6) { let s = ""; for (const b of crypto.getRandomValues(new Uint8Array(n))) s += ALPHABET[b % ALPHABET.length]; return s; }
 const curPeriod = () => new Date().toISOString().slice(0, 7);
+const INVITE_DAYS = 7; // скільки діє запрошення (так само в боті)
+
+let BOT_USERNAME = "";
+async function botUsername() {
+  if (BOT_USERNAME) return BOT_USERNAME;
+  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMe`).then((x) => x.json()).catch(() => null);
+  BOT_USERNAME = r?.result?.username ?? "";
+  return BOT_USERNAME;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -66,9 +76,38 @@ Deno.serve(async (req) => {
 
     if (action === "admin_list") {
       if (!isSuper) return json({ error: "forbidden" }, 403);
-      const { data } = await db.from("shoppers").select("telegram_id, full_name, is_super")
-        .eq("is_admin", true).eq("active", true).order("created_at");
-      return json({ admins: data ?? [] });
+      const since = new Date(Date.now() - INVITE_DAYS * 864e5).toISOString();
+      const [{ data }, { data: invites }] = await Promise.all([
+        db.from("shoppers").select("telegram_id, full_name, is_super")
+          .eq("is_admin", true).eq("active", true).order("created_at"),
+        db.from("admin_invites").select("code, full_name, is_super, created_at")
+          .is("used_at", null).gt("created_at", since).order("created_at", { ascending: false }),
+      ]);
+      return json({ admins: data ?? [], invites: invites ?? [] });
+    }
+
+    if (action === "create_invite") {
+      if (!isSuper) return json({ error: "forbidden" }, 403);
+      const nm = String(payload?.name || "").trim().slice(0, 80);
+      if (!nm) return json({ ok: false, error: "no_name" });
+      const su = payload?.is_super === true;
+      let code = "", error = null;
+      for (let i = 0; i < 5; i++) {
+        code = genCode(8);
+        ({ error } = await db.from("admin_invites").insert({ code, full_name: nm, is_super: su, created_by: tgUser.id }));
+        if (!error) break;
+      }
+      if (error) return json({ ok: false, error: error.message });
+      const bot = await botUsername();
+      return json({ ok: true, code, name: nm, is_super: su, link: bot ? `https://t.me/${bot}?start=${code}` : "" });
+    }
+
+    if (action === "cancel_invite") {
+      if (!isSuper) return json({ error: "forbidden" }, 403);
+      const code = String(payload?.code || "");
+      const { error } = await db.from("admin_invites").delete().eq("code", code).is("used_at", null);
+      if (error) return json({ ok: false, error: error.message });
+      return json({ ok: true });
     }
 
     if (action === "add_admin") {
