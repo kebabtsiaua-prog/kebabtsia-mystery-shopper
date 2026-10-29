@@ -159,6 +159,24 @@
   html.tg-dark{--G:#34c759; --Y:#f0b429; --R:#ff5a4f; --Gt:rgba(52,199,89,.15); --Yt:rgba(240,180,41,.15);
     --Rt:rgba(255,90,79,.13); --Rb:rgba(255,90,79,.3); --sep:rgba(255,255,255,.09); --field:rgba(255,255,255,.07);}
   .adm-h{padding:6px 16px 2px; text-align:center;}
+  .tour-link{display:inline-block; margin-top:4px; font-size:12.5px; color:var(--link); cursor:pointer;}
+  .tour-hole{position:fixed; z-index:200; border-radius:14px; pointer-events:none;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.62); transition:all .28s ease;}
+  .tour-tip{position:fixed; z-index:201; left:16px; right:16px; max-width:420px; margin:0 auto;
+    background:var(--card); color:var(--text); border-radius:16px; padding:16px 16px 14px;
+    box-shadow:0 10px 34px rgba(0,0,0,.35); transition:top .28s ease;}
+  .tour-tip .st{font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:var(--hint); font-weight:700;}
+  .tour-tip h3{margin:4px 0 6px; font-size:17px;}
+  .tour-tip p{margin:0; font-size:14px; line-height:1.45;}
+  .tour-tip .tb{display:flex; gap:8px; margin-top:14px;}
+  .tour-tip .tb button{flex:1; border:none; border-radius:10px; padding:11px; font-size:14.5px; font-weight:600; cursor:pointer;}
+  .tour-tip .tb .nx{background:var(--btn); color:var(--btn-text);}
+  .tour-tip .tb .sk{background:var(--field); color:var(--link);}
+  .tour-block{position:fixed; inset:0; z-index:199;}
+  .sw{position:relative; width:46px; height:28px; border-radius:14px; background:var(--sep); flex:none; cursor:pointer; transition:background .2s;}
+  .sw::after{content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25); transition:left .2s;}
+  .sw.on{background:var(--yes);}
+  .sw.on::after{left:21px;}
   .adm-h small{display:block; font-size:10.5px; letter-spacing:1.4px; text-transform:uppercase; color:var(--hint); font-weight:700;}
   .h2{display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin:24px 16px 8px;}
   .h2 b{font-size:16px; font-weight:800; letter-spacing:-.01em;}
@@ -677,7 +695,7 @@ function showCodeEntry(err){
       const res = await api("redeem_code", { code });
       if(res.ok && res.admin){
         const me = await api("me", null);
-        if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; IS_SUPER = me.is_super===true; adminApp(); return; }
+        if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; IS_SUPER = me.is_super===true; NOTIFY = me.notify===true; TOUR_DONE = me.tour_done!==false; adminApp(); return; }
         showCodeEntry("Доступ відкрито. Закрийте й відкрийте застосунок ще раз.");
       } else if(res.ok){
         applyAssignment(res.assignment); showForm();
@@ -720,7 +738,7 @@ const avgOf = a => a.length ? Math.round(a.reduce((s,v)=>s+v,0)/a.length) : null
 const deltaHTML = d => d==null ? "" : d>0 ? `<span class="delta" style="color:var(--G)">▲ +${d}%</span>`
   : d<0 ? `<span class="delta" style="color:var(--R)">▼ −${-d}%</span>` : `<span class="delta" style="color:var(--hint)">= без змін</span>`;
 const A = document.getElementById("admin");
-let ADMIN_REPORTS = [], ADMIN_LOCATIONS = [], ADMIN_PERIOD = null, IS_SUPER = false, ADMIN_ADMINS = [], ADMIN_INVITES = [];
+let ADMIN_REPORTS = [], ADMIN_LOCATIONS = [], ADMIN_PERIOD = null, IS_SUPER = false, ADMIN_ADMINS = [], ADMIN_INVITES = [], NOTIFY = false, TOUR_DONE = true;
 const SESSION_ID = (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) || null;
 
 async function adminApp(){
@@ -737,7 +755,78 @@ async function adminApp(){
     ADMIN_REPORTS = res.reports || [];
     if(adm){ ADMIN_ADMINS = adm.admins || []; ADMIN_INVITES = adm.invites || []; }
     renderList();
+    if(!TOUR_DONE) setTimeout(()=>startTour(), 400);
   }catch(e){ A.innerHTML = `<div class="empty">Помилка завантаження звітів.</div>`; }
+}
+
+// ---- Сповіщення про нові перевірки ----
+function notifyBlock(){
+  return `<div class="acc" data-tour="notify"><div class="acc-h nt" style="cursor:default"><div class="ti">🔔</div>
+    <b>Сповіщення про перевірки<small>щойно покупець здасть звіт, бот напише вам: точка, оцінка, коротко що й як</small></b>
+    <div class="sw ${NOTIFY?"on":""}" id="notifySw" role="switch" aria-checked="${NOTIFY}"></div></div></div>`;
+}
+function attachNotify(){
+  const sw=document.getElementById("notifySw"); if(!sw) return;
+  sw.onclick=async()=>{
+    const want=!NOTIFY; sw.classList.toggle("on",want); haptic();
+    try{
+      const res=await api("set_notify",{on:want});
+      if(!res.ok) throw 0;
+      NOTIFY=want;
+    }catch(e){ sw.classList.toggle("on",NOTIFY); alertMsg("Не вдалося змінити. Спробуйте ще раз."); }
+  };
+}
+
+// ---- Екскурсія по кабінету (показується один раз, повторити — «Як тут усе влаштовано?») ----
+const TOUR = [
+  {t:null, h:"Вітаємо в кабінеті 👋", p:"Тут видно, як таємні покупці оцінюють наші точки. Покажу головне — це хвилина."},
+  {t:"code", h:"🔑 Код для покупця", p:"Щоб відправити покупця на перевірку: оберіть локацію → «Згенерувати код» → надішліть код людині. Код одноразовий: одна перевірка однієї точки."},
+  {t:"todo", h:"Ще не перевірено", p:"Точки, де цього місяця перевірки ще не було. Тапніть по точці, і вона сама підставиться в код вище."},
+  {t:"months", h:"Місяць", p:"Перемикайте місяць, щоб подивитися результати за інший період."},
+  {t:"hero", h:"Головні цифри", p:"Середня оцінка мережі за місяць і порівняння з минулим місяцем. 🟢 85% і вище — добре, 🟡 70–84% — є над чим працювати, 🔴 нижче 70% — треба розбиратися."},
+  {t:"rating", h:"Рейтинг точок", p:"Усі перевірені точки від найкращої до найгіршої, зі зміною до минулого місяця. Натисніть на точку — відкриється повний звіт: відповіді, коментарі покупця, фото і кнопка PDF."},
+  {t:"sections", h:"Розділи", p:"Як мережа в середньому проходить кожен етап: прийом замовлення, видача, якість страв, персонал, чистота."},
+  {t:"fails", h:"Найчастіші порушення", p:"Пункти, на які покупці найчастіше відповідали «Ні». З цього варто починати розмову з командою."},
+  {t:"notify", h:"🔔 Сповіщення", p:"Увімкніть, і бот писатиме вам щоразу, коли покупець здасть звіт: точка, відсоток, що сподобалось і що ні."},
+  {t:"tools", h:"Інструменти", p:"Тут PDF-звіт по будь-якій локації"+"{SUPER}"+". Повторити цю екскурсію можна посиланням «Як тут усе влаштовано?» вгорі."},
+];
+function startTour(){
+  const steps = TOUR.filter(s=>!s.t || document.querySelector(`[data-tour="${s.t}"]`))
+    .map(s=>({...s, p:s.p.replace("{SUPER}", IS_SUPER?", а для головного адміна ще й «Адміністратори»: тут ви запрошуєте людей у кабінет":"")}));
+  let i=0;
+  const blk=el(`<div class="tour-block"></div>`), hole=el(`<div class="tour-hole"></div>`), tip=el(`<div class="tour-tip"></div>`);
+  document.body.append(blk, hole, tip);
+  const finish=()=>{ blk.remove(); hole.remove(); tip.remove(); window.removeEventListener("resize",place);
+    if(!TOUR_DONE){ TOUR_DONE=true; api("tour_done",null).catch(()=>{}); } };
+  function place(){
+    const s=steps[i], vh=window.innerHeight;
+    const tg_=s.t && document.querySelector(`[data-tour="${s.t}"]`);
+    // якщо заголовок — підсвічуємо і картку під ним
+    let r=null;
+    if(tg_){
+      r=tg_.getBoundingClientRect();
+      const nx=tg_.classList.contains("h2") ? tg_.nextElementSibling : null;
+      if(nx){ const r2=nx.getBoundingClientRect(); r={top:r.top,left:Math.min(r.left,r2.left),right:Math.max(r.right,r2.right),bottom:Math.min(r2.bottom, r.top+vh*0.5)}; }
+    }
+    if(r){
+      hole.style.cssText=`top:${r.top-6}px;left:${Math.max(r.left-6,6)}px;width:${Math.min(r.right-r.left+12, window.innerWidth-12)}px;height:${r.bottom-r.top+12}px`;
+    } else hole.style.cssText=`top:${vh/2}px;left:50%;width:0;height:0`;
+    const th=tip.offsetHeight||190;
+    let top = !r ? (vh-th)/2 : (r.bottom+18+th < vh ? r.bottom+18 : Math.max(12, r.top-18-th));
+    tip.style.top=top+"px";
+  }
+  function show(){
+    const s=steps[i], last=i===steps.length-1;
+    tip.innerHTML=`<div class="st">${i+1} з ${steps.length}</div><h3>${s.h}</h3><p>${s.p}</p>
+      <div class="tb">${last?"":`<button class="sk">Пропустити</button>`}<button class="nx">${last?"Зрозуміло 👍":i===0?"Почати":"Далі"}</button></div>`;
+    tip.querySelector(".nx").onclick=()=>{ haptic(); if(last) finish(); else { i++; show(); } };
+    const sk=tip.querySelector(".sk"); if(sk) sk.onclick=finish;
+    const t=s.t && document.querySelector(`[data-tour="${s.t}"]`);
+    if(t) t.scrollIntoView({block:"center"});
+    requestAnimationFrame(()=>requestAnimationFrame(place));
+  }
+  window.addEventListener("resize",place);
+  show();
 }
 
 function codeGenBlock(){
@@ -951,19 +1040,19 @@ function renderList(){
   const remaining = ADMIN_LOCATIONS.filter(l=>!checked.has(l.name));
   const doneN = total - remaining.length;
 
-  let h = `<div class="adm-h"><small>Кабінет адміністратора</small></div>`;
-  h += codeGenBlock();
+  let h = `<div class="adm-h"><small>Кабінет адміністратора</small><span class="tour-link" id="tourAgain">Як тут усе влаштовано?</span></div>`;
+  h += `<div data-tour="code">${codeGenBlock()}</div>`;
 
   // Що ще не перевірено в поточному місяці — одразу під кодом (тап по локації підставляє її в код)
   const nd = new Date(), nowP = `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,"0")}`;
   const doneNow = new Set(reportsFor(nowP).map(r=>r.location_name));
   const todo = ADMIN_LOCATIONS.filter(l=>!doneNow.has(l.name));
-  h += `<div class="h2"><b>Ще не перевірено · ${MONTHS_UK[+nowP.split("-")[1]]}</b><span>${todo.length?`${todo.length} з ${total}`:""}</span></div>`;
+  h += `<div class="h2" data-tour="todo"><b>Ще не перевірено · ${MONTHS_UK[+nowP.split("-")[1]]}</b><span>${todo.length?`${todo.length} з ${total}`:""}</span></div>`;
   h += todo.length ? `<div class="card pad"><div class="chips">${todo.map(l=>`<span class="chip-loc todo" data-n="${escH(l.name)}">${escH(l.name)}</span>`).join("")}</div>
       <div style="font-size:12px;color:var(--hint);margin-top:9px">Тапніть локацію — вона підставиться в код вище.</div></div>`
     : `<div class="okbox">✓ Усі локації перевірено цього місяця</div>`;
 
-  h += `<div class="h2"><b>Місяць перевірок</b></div><div class="months">`;
+  h += `<div class="h2" data-tour="months"><b>Місяць перевірок</b></div><div class="months">`;
   if(!periods.length) h += `<span class="mchip on">Немає даних</span>`;
   periods.forEach(p=> h += `<span class="mchip ${p===ADMIN_PERIOD?'on':''}" data-p="${p}">${monthLabel(p)}</span>`);
   h += `</div>`;
@@ -971,7 +1060,7 @@ function renderList(){
   if(ADMIN_PERIOD){
     // Головні цифри
     const d = prevAvg!=null ? avg-prevAvg : null;
-    h += `<div class="hero">
+    h += `<div class="hero" data-tour="hero">
       <div class="score" style="background:${scoreBg(avg)}">
         <div class="lbl">Середня оцінка</div>
         <div class="big" style="color:${scoreCol(avg)}">${avg}%</div>
@@ -984,7 +1073,7 @@ function renderList(){
       </div></div>`;
 
     // Рейтинг локацій зі зміною до минулого місяця
-    h += `<div class="h2"><b>Рейтинг локацій</b><span>${prevP?`зміна до ${prevMonth}`:"тапніть — відкриється звіт"}</span></div><div class="card">`;
+    h += `<div class="h2" data-tour="rating"><b>Рейтинг локацій</b><span>${prevP?`зміна до ${prevMonth}`:"тапніть — відкриється звіт"}</span></div><div class="card">`;
     reps.forEach((r,i)=>{
       const p = pctOf(r), pr = locReport(r.location_name, prevP);
       h += `<div class="bar-row" data-i="${ADMIN_REPORTS.indexOf(r)}"><div class="rk">${i+1}</div>
@@ -998,7 +1087,7 @@ function renderList(){
     // Мережа по розділах
     const secs = sectionAvgs(reps), prevSecs = Object.fromEntries(sectionAvgs(prevReps).map(x=>[x.s.id,x.v]));
     if(secs.length){
-      h += `<div class="h2"><b>Мережа по розділах</b><span>середнє</span></div><div class="card">` +
+      h += `<div class="h2" data-tour="sections"><b>Мережа по розділах</b><span>середнє</span></div><div class="card">` +
         secs.map(({s,v})=>`<div class="sec-row"><div class="nm">${s.title}</div>
           <div class="track"><div class="fill" style="width:${v}%;background:${scoreCol(v)}"></div></div>
           <div class="pct"><b style="color:${scoreCol(v)}">${v}%</b>${prevSecs[s.id]!=null?deltaHTML(v-prevSecs[s.id]):""}</div></div>`).join("") + `</div>`;
@@ -1013,7 +1102,7 @@ function renderList(){
       if(n) fails.push({q:q.q, s:s.title, n, of:asked.length});
     }));
     fails.sort((a,b)=>b.n-a.n || b.n/b.of-a.n/a.of);
-    h += `<div class="h2"><b>Найчастіші порушення</b><span>у скількох звітах «Ні»</span></div>`;
+    h += `<div class="h2" data-tour="fails"><b>Найчастіші порушення</b><span>у скількох звітах «Ні»</span></div>`;
     h += fails.length ? `<div class="card">` + fails.slice(0,5).map(f=>`<div class="fail"><div class="q">${f.q}<small>${f.s}</small></div>
         <span class="cnt">${f.n} з ${f.of}</span></div>`).join("") + `</div>`
       : `<div class="okbox">✓ Порушень цього місяця немає</div>`;
@@ -1027,19 +1116,21 @@ function renderList(){
   }
 
   // Інструменти
-  const tools = pdfPickBlock(reps) + (IS_SUPER ? adminMgmtBlock() : "");
-  if(tools) h += `<div class="h2"><b>Інструменти</b></div><div class="card">${tools}</div>`;
+  const tools = pdfPickBlock(reps) + notifyBlock() + (IS_SUPER ? adminMgmtBlock() : "");
+  h += `<div class="h2" data-tour="tools"><b>Інструменти</b></div><div class="card">${tools}</div>`;
 
   A.innerHTML = h;
   attachCodeGen();
   if(IS_SUPER) attachAdminMgmt();
   attachPdfPick(reps);
+  attachNotify();
+  document.getElementById("tourAgain").onclick = () => startTour();
   A.querySelectorAll(".chip-loc.todo").forEach(c=>c.onclick=()=>{
     document.querySelector("#cgLocHolder .csel")._setVal(c.dataset.n); haptic();
     document.getElementById("cgResult").innerHTML="";
     document.querySelector(".scroll").scrollTop=0; window.scrollTo({top:0,behavior:"smooth"});
   });
-  A.querySelectorAll(".acc-h").forEach(x=>x.onclick=()=>x.parentElement.classList.toggle("open"));
+  A.querySelectorAll(".acc-h:not(.nt)").forEach(x=>x.onclick=()=>x.parentElement.classList.toggle("open"));
   A.querySelectorAll(".mchip[data-p], #trend g[data-p]").forEach(c=>c.onclick=()=>{ ADMIN_PERIOD=c.dataset.p; renderList(); });
   A.querySelectorAll(".bar-row").forEach(c=>c.onclick=()=>openDetail(ADMIN_REPORTS[+c.dataset.i]));
   document.querySelector(".scroll").scrollTop = 0;
@@ -1369,7 +1460,7 @@ async function initApp(){
   try{
     const me = await api("me", null);
     if(!me.authorized){ gate("🔒","Немає доступу","Відкрийте, будь ласка, анкету через бота Кебабці."); return; }
-    if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; IS_SUPER = me.is_super===true; adminApp(); return; }
+    if(me.is_admin){ ADMIN_LOCATIONS = me.locations||[]; IS_SUPER = me.is_super===true; NOTIFY = me.notify===true; TOUR_DONE = me.tour_done!==false; adminApp(); return; }
     showCodeEntry();
   }catch(e){ gate("⚠️","Помилка зʼєднання","Спробуйте, будь ласка, пізніше."); }
 }

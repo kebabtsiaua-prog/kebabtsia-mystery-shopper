@@ -47,6 +47,74 @@ function genCode(n = 6) { let s = ""; for (const b of crypto.getRandomValues(new
 const curPeriod = () => new Date().toISOString().slice(0, 7);
 const INVITE_DAYS = 7; // скільки діє запрошення (так само в боті)
 
+const APP_URL = "https://kebabtsiaua-prog.github.io/kebabtsia-mystery-shopper/";
+const tgCall = (method, body) => fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+}).catch(() => null);
+const escT = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const cut = (s, n = 140) => { s = String(s ?? "").trim().replace(/\s+/g, " "); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+
+// Питання після входу за запрошенням (кнопки обробляє бот: callback notify:1 / notify:0)
+const NOTIFY_QUESTION = {
+  text: "🔔 <b>Надсилати вам сповіщення, коли на якійсь із наших точок таємний покупець пройде перевірку?</b>\n\n" +
+    "Щойно покупець здасть звіт, я напишу вам: яка точка, яка оцінка у відсотках і коротко, що сподобалось і що ні.",
+  reply_markup: { inline_keyboard: [[
+    { text: "✅ Так, надсилати", callback_data: "notify:1" },
+    { text: "Ні, не треба", callback_data: "notify:0" },
+  ]] },
+};
+
+const MONTHS = ["", "січень", "лютий", "березень", "квітень", "травень", "червень", "липень", "серпень", "вересень", "жовтень", "листопад", "грудень"];
+const MONTHS_GEN = ["", "січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"];
+const SECTION_TITLES = {
+  reception: "Прийом замовлення", payout: "Розрахунок і видача", quality: "Якість страв",
+  staff: "Персонал", clean: "Чистота та атмосфера",
+};
+
+// Сповіщення адмінам (shoppers.notify = true) про щойно зданий звіт
+async function notifyAdmins(r) {
+  const { data: admins } = await db.from("shoppers").select("telegram_id")
+    .eq("is_admin", true).eq("active", true).eq("notify", true);
+  if (!admins?.length) return;
+  const pct = Math.round(Number(r.score_pct) || 0);
+  const dot = pct >= 85 ? "🟢" : pct >= 70 ? "🟡" : "🔴";
+  const m = Number(String(r.period || "").split("-")[1]) || 0;
+  let delta = "";
+  const { data: prev } = await db.from("reports").select("score_pct, period")
+    .eq("location_name", r.location_name).lt("period", r.period).order("period", { ascending: false }).limit(1).maybeSingle();
+  if (prev) {
+    const d = pct - Math.round(Number(prev.score_pct) || 0);
+    const pm = Number(String(prev.period).split("-")[1]) || 0;
+    delta = ` · ${d > 0 ? "▲ +" + d + "%" : d < 0 ? "▼ " + d + "%" : "без змін"} до ${MONTHS_GEN[pm]}`;
+  }
+  const secs = Object.entries(r.section_scores || {})
+    .filter(([id, v]) => SECTION_TITLES[id] && v?.max)
+    .map(([id, v]) => ({ t: SECTION_TITLES[id], v: Math.round(v.earned / v.max * 100) }))
+    .sort((a, b) => b.v - a.v);
+  const a = r.answers || {};
+  const lines = [
+    "🕵️ <b>Нова перевірка таємного покупця</b>",
+    "",
+    `📍 <b>${escT(r.location_name || "—")}</b>${m ? " · " + MONTHS[m] : ""}`,
+    `${dot} Оцінка: <b>${pct}%</b>${r.score_max ? ` (${r.score_earned} з ${r.score_max} балів)` : ""}${delta}`,
+  ];
+  if (secs.length) {
+    lines.push("");
+    lines.push(`💪 Найкраще: ${secs[0].t} — ${secs[0].v}%`);
+    const w = secs[secs.length - 1];
+    if (secs.length > 1 && w.v < 100) lines.push(`⚠️ Найслабше: ${w.t} — ${w.v}%`);
+  }
+  if (a.liked || a.disliked) lines.push("");
+  if (a.liked) lines.push(`👍 Сподобалось: «${escT(cut(a.liked))}»`);
+  if (a.disliked) lines.push(`👎 Не сподобалось: «${escT(cut(a.disliked))}»`);
+  if (a.violations) lines.push(`🚫 Порушення: «${escT(cut(a.violations))}»`);
+  const text = lines.join("\n");
+  await Promise.allSettled(admins.map((x) => tgCall("sendMessage", {
+    chat_id: x.telegram_id, parse_mode: "HTML", text,
+    reply_markup: { inline_keyboard: [[{ text: "📊 Відкрити звіт у кабінеті", web_app: { url: APP_URL } }]] },
+  })));
+}
+
 let BOT_USERNAME = "";
 async function botUsername() {
   if (BOT_USERNAME) return BOT_USERNAME;
@@ -62,16 +130,29 @@ Deno.serve(async (req) => {
     const tgUser = await verify(initData);
     if (!tgUser) return json({ authorized: false, reason: "bad_init" }, 401);
     const name = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || tgUser.username || String(tgUser.id);
-    const { data: adminRow } = await db.from("shoppers").select("is_admin, is_super").eq("telegram_id", tgUser.id).eq("active", true).maybeSingle();
+    const { data: adminRow } = await db.from("shoppers").select("is_admin, is_super, notify, tour_done_at").eq("telegram_id", tgUser.id).eq("active", true).maybeSingle();
     const isAdmin = adminRow?.is_admin === true;
     const isSuper = adminRow?.is_super === true;
 
     if (action === "me") {
       if (isAdmin) {
         const { data: locations } = await db.from("locations").select("id, name").eq("active", true).order("name");
-        return json({ authorized: true, is_admin: true, is_super: isSuper, locations: locations ?? [] });
+        return json({ authorized: true, is_admin: true, is_super: isSuper, locations: locations ?? [],
+          notify: adminRow?.notify === true, tour_done: !!adminRow?.tour_done_at });
       }
       return json({ authorized: true, is_admin: false });
+    }
+
+    if (action === "set_notify") {
+      if (!isAdmin) return json({ error: "forbidden" }, 403);
+      const { error } = await db.from("shoppers").update({ notify: payload?.on === true }).eq("telegram_id", tgUser.id);
+      return json({ ok: !error, error: error?.message });
+    }
+
+    if (action === "tour_done") {
+      if (!isAdmin) return json({ error: "forbidden" }, 403);
+      await db.from("shoppers").update({ tour_done_at: new Date().toISOString() }).eq("telegram_id", tgUser.id);
+      return json({ ok: true });
     }
 
     if (action === "admin_list") {
@@ -158,6 +239,7 @@ Deno.serve(async (req) => {
           await db.from("admin_invites").update({ used_by: null, used_at: null }).eq("code", code);
           return json({ ok: false, error: error.message });
         }
+        await tgCall("sendMessage", { chat_id: tgUser.id, parse_mode: "HTML", ...NOTIFY_QUESTION });
         return json({ ok: true, admin: true });
       }
       if (asg.status !== "open") return json({ ok: false, error: "used" });
@@ -184,13 +266,14 @@ Deno.serve(async (req) => {
         }
       }
 
-      const { error } = await db.from("reports").insert({
+      const rep = {
         assignment_id: asg.id, shopper_id: tgUser.id, shopper_name: name,
         location_id: p.location_id ?? asg.location_id, location_name: p.location_name,
         period: p.period ?? asg.period, answers: p.answers,
         score_pct: p.score_pct, score_earned: p.score_earned, score_max: p.score_max,
         section_scores: p.section_scores, photos: photoPaths,
-      });
+      };
+      const { error } = await db.from("reports").insert(rep);
       if (error) return json({ ok: false, error: error.message }, 500);
       await db.from("assignments").update({ status: "done", shopper_id: tgUser.id, used_at: new Date().toISOString() }).eq("id", asg.id);
 
@@ -204,6 +287,8 @@ Deno.serve(async (req) => {
           }),
         });
       } catch (_) { /* не критично */ }
+
+      try { await notifyAdmins(rep); } catch (_) { /* не критично */ }
 
       return json({ ok: true });
     }
